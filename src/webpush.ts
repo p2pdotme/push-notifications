@@ -2,6 +2,7 @@ import webpush, { type PushSubscription, WebPushError } from 'web-push';
 import type { Config } from './config.js';
 import type { Repository } from './repository.js';
 import type { NotificationPayload, SubscriptionRecord } from './types.js';
+import { mapWithConcurrency } from './concurrency.js';
 
 export interface SendResult {
   endpoint: string;
@@ -44,8 +45,10 @@ export class PushSender {
     payload: NotificationPayload,
     options: { ttl?: number; urgency?: 'very-low' | 'low' | 'normal' | 'high' } = {},
   ): Promise<SendSummary> {
-    const results = await Promise.all(
-      subs.map((sub) => this.sendToOne(sub, payload, options)),
+    const results = await mapWithConcurrency(
+      subs,
+      this.config.sendConcurrency,
+      (sub) => this.sendToOne(sub, payload, options),
     );
     return {
       sent: results.filter((r) => r.success).length,

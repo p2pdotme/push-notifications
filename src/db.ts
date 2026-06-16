@@ -15,6 +15,9 @@ export function openDatabase(path: string): Database.Database {
   const db = new Database(path);
   db.pragma('journal_mode = WAL');
   db.pragma('foreign_keys = ON');
+  db.pragma('cache_size = -2000');     // ~2 MiB page cache (negative = KiB)
+  db.pragma('mmap_size = 0');          // don't memory-map the DB into RSS
+  db.pragma('wal_autocheckpoint = 256'); // checkpoint ~1 MiB of WAL
   migrate(db);
   return db;
 }

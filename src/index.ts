@@ -3,7 +3,7 @@ import { openDatabase } from './db.js';
 import { Repository } from './repository.js';
 import { createServer } from './server.js';
 import { PushSender } from './webpush.js';
-import { createThirdwebAuthService } from './auth-service.js';
+import { createAuthService } from './auth-service.js';
 import { seedFromEnv } from './seed.js';
 
 /** Composition root: load config, wire dependencies, start listening. */
@@ -19,6 +19,14 @@ function main(): void {
     corsOrigins: config.corsOrigins.filter((o) => o !== '*'),
   });
 
+  if (config.logRetentionDays > 0) {
+    const prune = () => repo.pruneOldLogs(config.logRetentionDays);
+    prune(); // prune once at startup
+    const HOUR = 60 * 60 * 1000;
+    const timer = setInterval(prune, HOUR);
+    timer.unref(); // don't keep the event loop alive for the timer alone
+  }
+
   if (!config.dashboardOrigin) {
     // eslint-disable-next-line no-console
     console.warn(
@@ -29,7 +37,7 @@ function main(): void {
   }
 
   const sender = new PushSender(config, repo);
-  const authService = createThirdwebAuthService(config);
+  const authService = createAuthService(config);
   const app = createServer(config, repo, sender, authService);
 
   const server = app.listen(config.port, config.host, () => {

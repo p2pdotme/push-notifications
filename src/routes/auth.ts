@@ -6,7 +6,7 @@ import type { Config } from '../config.js';
 import type { Repository } from '../repository.js';
 
 /**
- * thirdweb SIWE auth for the dashboard. `/payload` and `/login` are public;
+ * SIWE auth for the dashboard. `/payload` and `/login` are public;
  * `/me` requires a Bearer token. A non-whitelisted login returns 403 plus the
  * resolved address so the UI can show a bootstrap hint.
  */

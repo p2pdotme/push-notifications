@@ -23,6 +23,11 @@ The heavy crypto is handled by the battle-tested [`web-push`](https://github.com
 library. Subscriptions and a delivery audit log live in a local **SQLite** file
 — genuinely self-contained, nothing else to run.
 
+The server has **no thirdweb runtime dependency**. SIWE signatures are verified
+with [`ox`](https://github.com/wevm/ox) (secp256k1), and admin sessions use an
+HS256 JWT signed entirely by `node:crypto`. The `thirdweb` package remains only
+as a dev-time contract-test dependency.
+
 ```
  ┌────────────┐  subscribe   ┌──────────────────┐  encrypted   ┌──────────────┐
  │  Browser   │ ───────────► │  push service    │ ───────────► │   Browser    │
@@ -73,20 +78,22 @@ docker compose up --build
 
 See [`.env.example`](./.env.example). Key variables:
 
-| Variable            | Purpose                                                            |
-| ------------------- | ----------------------------------------------------------------- |
-| `VAPID_PUBLIC_KEY`  | Shared with browsers; identifies the app server.                  |
-| `VAPID_PRIVATE_KEY` | **Secret.** Signs push requests.                                  |
-| `VAPID_SUBJECT`     | `mailto:` or `https:` contact, required by push services.         |
-| `ADMIN_API_KEY`     | Master key — may send to / manage any app.                        |
-| `APP_KEYS`          | Optional JSON `{ "<appId>": "<secret>" }`. Imported into the DB on first boot. |
-| `DATABASE_PATH`     | SQLite file location.                                             |
-| `CORS_ORIGINS`      | Optional. Imported into the DB on first boot; DB is source of truth after. |
-| `THIRDWEB_SECRET_KEY` | thirdweb project secret for admin dashboard auth.              |
-| `THIRDWEB_AUTH_PRIVATE_KEY` | **Secret.** Signs admin session JWTs (no funds needed).  |
-| `THIRDWEB_AUTH_DOMAIN` | SIWE domain shown to wallets, e.g. `push.p2p.me`.             |
-| `ADMIN_WALLETS`     | Comma-separated bootstrap admin wallet addresses.                |
-| `DASHBOARD_ORIGIN`  | Origin of the dashboard SPA, allowed on `/auth` + `/admin`.       |
+| Variable              | Purpose                                                                        |
+| --------------------- | ------------------------------------------------------------------------------ |
+| `VAPID_PUBLIC_KEY`    | Shared with browsers; identifies the app server.                               |
+| `VAPID_PRIVATE_KEY`   | **Secret.** Signs push requests.                                               |
+| `VAPID_SUBJECT`       | `mailto:` or `https:` contact, required by push services.                     |
+| `ADMIN_API_KEY`       | Master key — may send to / manage any app.                                    |
+| `APP_KEYS`            | Optional JSON `{ "<appId>": "<secret>" }`. Imported into the DB on first boot. |
+| `DATABASE_PATH`       | SQLite file location.                                                          |
+| `CORS_ORIGINS`        | Optional. Imported into the DB on first boot; DB is source of truth after.    |
+| `AUTH_DOMAIN`         | SIWE domain shown to wallets (e.g. `push.p2p.me`). Replaces `THIRDWEB_AUTH_DOMAIN` (still accepted as fallback). |
+| `AUTH_JWT_SECRET`     | **Secret.** 32+ random bytes used to sign HS256 admin session JWTs. Replaces `THIRDWEB_AUTH_PRIVATE_KEY` (still accepted as fallback). |
+| `ADMIN_WALLETS`       | Comma-separated bootstrap admin wallet addresses.                              |
+| `DASHBOARD_ORIGIN`    | Origin of the dashboard SPA, allowed on `/auth` + `/admin`.                   |
+| `SEND_CONCURRENCY`    | Max push sends in flight at once (default: `25`).                              |
+| `LOG_RETENTION_DAYS`  | Delete delivery logs older than N days (`0` = keep forever, default).          |
+| `NODE_OPTIONS`        | Set in the Docker runtime stage to cap V8 heap: `--max-old-space-size=128 --max-semi-space-size=2`. Override for larger hosts. |
 
 Each org app gets its own `appId` + key, so `merchant-app` can never push to
 `user-app` subscribers. The admin key is for internal tooling / cross-app sends.
@@ -97,8 +104,10 @@ A separate wallet-authenticated dashboard (`dashboard/`) manages apps, API keys,
 and per-app CORS origins live in the database — replacing static `APP_KEYS` /
 `CORS_ORIGINS` env config (those are imported once on first boot).
 
-- **Login:** thirdweb in-app wallet (Google / email). Admins are whitelisted by
-  wallet address via `ADMIN_WALLETS` (bootstrap) plus dashboard-managed admins.
+- **Login:** thirdweb in-app wallet (Google / email) on the frontend; the server
+  verifies SIWE signatures with `ox` (no thirdweb SDK at runtime) and issues
+  HS256 JWTs via `node:crypto`. Admins are whitelisted by wallet address via
+  `ADMIN_WALLETS` (bootstrap) plus dashboard-managed admins.
 - **First admin:** log in once to discover your embedded-wallet address (the UI
   shows it when not yet authorized), add it to `ADMIN_WALLETS`, then restart.
 - **API keys** are shown in full exactly once at creation and stored hashed.
