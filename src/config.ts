@@ -18,6 +18,24 @@ function optional(name: string, fallback: string): string {
   return value && value.trim() !== '' ? value.trim() : fallback;
 }
 
+/** First non-empty value among the given env var names, else fallback. */
+function firstEnv(names: string[], fallback: string): string {
+  for (const name of names) {
+    const value = process.env[name];
+    if (value && value.trim() !== '') return value.trim();
+  }
+  return fallback;
+}
+
+/** Like `required`, but accepts the first of several candidate env names. */
+function required2(names: string[]): string {
+  const value = firstEnv(names, '');
+  if (!value) {
+    throw new Error(`Missing required environment variable (one of): ${names.join(', ')}`);
+  }
+  return value;
+}
+
 function parseAppKeys(raw: string): Record<string, string> {
   if (!raw || raw.trim() === '') return {};
   let parsed: unknown;
@@ -62,11 +80,10 @@ export interface Config {
   maxFailures: number;
   adminWallets: string[];
   dashboardOrigin: string;
-  thirdweb: {
-    secretKey: string;
-    authPrivateKey: string;
-    authDomain: string;
-  };
+  authDomain: string;
+  jwtSecret: string;
+  sendConcurrency: number;
+  logRetentionDays: number;
 }
 
 export function loadConfig(): Config {
@@ -86,10 +103,9 @@ export function loadConfig(): Config {
     maxFailures: Number(optional('MAX_FAILURES', '5')),
     adminWallets: parseList(optional('ADMIN_WALLETS', '')).map((a) => a.toLowerCase()),
     dashboardOrigin: optional('DASHBOARD_ORIGIN', ''),
-    thirdweb: {
-      secretKey: required('THIRDWEB_SECRET_KEY'),
-      authPrivateKey: required('THIRDWEB_AUTH_PRIVATE_KEY'),
-      authDomain: required('THIRDWEB_AUTH_DOMAIN'),
-    },
+    authDomain: firstEnv(['AUTH_DOMAIN', 'THIRDWEB_AUTH_DOMAIN'], ''),
+    jwtSecret: required2(['AUTH_JWT_SECRET', 'THIRDWEB_AUTH_PRIVATE_KEY']),
+    sendConcurrency: Number(optional('SEND_CONCURRENCY', '25')),
+    logRetentionDays: Number(optional('LOG_RETENTION_DAYS', '0')),
   };
 }
