@@ -51,7 +51,7 @@ export function createServer(
     config,
     repo,
     sender,
-    requireApiKey: apiKeyAuth(config),
+    requireApiKey: apiKeyAuth(config, repo),
   };
 
   const app = express();

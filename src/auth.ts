@@ -2,6 +2,8 @@ import type { NextFunction, Request, Response } from 'express';
 import { timingSafeEqual } from 'node:crypto';
 import type { Config } from './config.js';
 import type { AuthContext } from './types.js';
+import { hashApiKey } from './api-keys.js';
+import type { Repository } from './repository.js';
 
 declare global {
   // eslint-disable-next-line @typescript-eslint/no-namespace
@@ -21,11 +23,11 @@ function safeEqual(a: string, b: string): boolean {
 }
 
 /**
- * Resolves the `x-api-key` header into an AuthContext. The admin key may act on
- * any app; an app key is scoped to its own appId. Sending endpoints require
- * this middleware; the browser-facing subscribe endpoints do not.
+ * Resolves the `x-api-key` header into an AuthContext. The admin key (env) may
+ * act on any app; otherwise the key is looked up by hash in the DB and scoped to
+ * its app. Sending endpoints require this middleware; browser subscribe does not.
  */
-export function apiKeyAuth(config: Config) {
+export function apiKeyAuth(config: Config, repo: Repository) {
   return (req: Request, res: Response, next: NextFunction): void => {
     const provided = req.header('x-api-key');
     if (!provided) {
@@ -39,12 +41,12 @@ export function apiKeyAuth(config: Config) {
       return;
     }
 
-    for (const [appId, key] of Object.entries(config.appKeys)) {
-      if (safeEqual(provided, key)) {
-        req.auth = { isAdmin: false, appId };
-        next();
-        return;
-      }
+    const key = repo.findActiveApiKeyByHash(hashApiKey(provided));
+    if (key) {
+      repo.touchApiKey(key.id);
+      req.auth = { isAdmin: false, appId: key.appId };
+      next();
+      return;
     }
 
     res.status(403).json({ error: 'Invalid API key' });
