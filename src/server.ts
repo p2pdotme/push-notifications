@@ -8,6 +8,7 @@ import { ZodError } from 'zod';
 import { apiKeyAuth, HttpError } from './auth.js';
 import type { AuthService } from './auth-service.js';
 import { authRouter } from './routes/auth.js';
+import { adminRouter } from './routes/admin.js';
 import type { Config } from './config.js';
 import type { Repository } from './repository.js';
 import type { PushSender } from './webpush.js';
@@ -90,6 +91,7 @@ export function createServer(
 
   // Admin plane: dashboard-origin CORS + thirdweb auth.
   app.use('/auth', adminCors(config), authRouter(config, repo, authService));
+  app.use('/admin', adminCors(config), adminRouter(config, repo, authService));
 
   // Centralised error handling: Zod -> 400, HttpError -> its status, else 500.
   app.use((err: unknown, _req: Request, res: Response, _next: NextFunction) => {

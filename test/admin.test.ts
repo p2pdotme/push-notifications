@@ -113,3 +113,98 @@ describe('auth routes', () => {
     close();
   });
 });
+
+describe('admin routes', () => {
+  it('rejects unauthenticated access', async () => {
+    const { base, close } = await startServer(makeConfig());
+    const res = await fetch(`${base}/admin/apps`);
+    assert.equal(res.status, 401);
+    close();
+  });
+
+  it('rejects a non-admin token', async () => {
+    const { base, close } = await startServer(makeConfig());
+    const res = await fetch(`${base}/admin/apps`, {
+      headers: { Authorization: 'Bearer faketoken:0xnope000000000000000000000000000000000003' },
+    });
+    assert.equal(res.status, 403);
+    close();
+  });
+
+  it('runs the full app/key/origin/admin lifecycle', async () => {
+    const { base, close } = await startServer(makeConfig());
+
+    let res = await fetch(`${base}/admin/apps`, {
+      method: 'POST',
+      headers: adminHeaders,
+      body: JSON.stringify({ appId: 'user-app', name: 'User App' }),
+    });
+    assert.equal(res.status, 201);
+
+    res = await fetch(`${base}/admin/apps`, { headers: adminHeaders });
+    assert.equal(((await res.json()) as unknown[]).length, 1);
+
+    res = await fetch(`${base}/admin/apps/user-app/keys`, {
+      method: 'POST',
+      headers: adminHeaders,
+      body: JSON.stringify({ label: 'ci' }),
+    });
+    assert.equal(res.status, 201);
+    const key = (await res.json()) as { id: number; secret: string };
+    assert.match(key.secret, /^pk_/);
+
+    res = await fetch(`${base}/admin/apps/user-app/keys`, { headers: adminHeaders });
+    const keys = (await res.json()) as Record<string, unknown>[];
+    assert.equal(keys.length, 1);
+    assert.equal(keys[0].secret, undefined);
+
+    res = await fetch(`${base}/admin/keys/${key.id}`, { method: 'DELETE', headers: adminHeaders });
+    assert.equal(res.status, 204);
+
+    res = await fetch(`${base}/admin/apps/user-app/origins`, {
+      method: 'POST',
+      headers: adminHeaders,
+      body: JSON.stringify({ origin: 'https://app.p2p.me' }),
+    });
+    assert.equal(res.status, 201);
+    const origin = (await res.json()) as { id: number };
+
+    res = await fetch(`${base}/admin/apps/user-app/origins`, { headers: adminHeaders });
+    assert.equal(((await res.json()) as unknown[]).length, 1);
+
+    res = await fetch(`${base}/admin/origins/${origin.id}`, { method: 'DELETE', headers: adminHeaders });
+    assert.equal(res.status, 204);
+
+    res = await fetch(`${base}/admin/admins`, {
+      method: 'POST',
+      headers: adminHeaders,
+      body: JSON.stringify({ address: '0xBEEF000000000000000000000000000000000004', label: 'teammate' }),
+    });
+    assert.equal(res.status, 201);
+
+    res = await fetch(`${base}/admin/admins`, { headers: adminHeaders });
+    assert.equal(((await res.json()) as { managed: unknown[] }).managed.length, 1);
+
+    res = await fetch(`${base}/admin/admins/0xBEEF000000000000000000000000000000000004`, {
+      method: 'DELETE',
+      headers: adminHeaders,
+    });
+    assert.equal(res.status, 204);
+
+    res = await fetch(`${base}/admin/apps/user-app`, { method: 'DELETE', headers: adminHeaders });
+    assert.equal(res.status, 204);
+
+    close();
+  });
+
+  it('validates request bodies with 400', async () => {
+    const { base, close } = await startServer(makeConfig());
+    const res = await fetch(`${base}/admin/apps`, {
+      method: 'POST',
+      headers: adminHeaders,
+      body: JSON.stringify({ appId: 'Bad Id!', name: '' }),
+    });
+    assert.equal(res.status, 400);
+    close();
+  });
+});
