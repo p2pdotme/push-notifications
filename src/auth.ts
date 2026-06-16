@@ -1,13 +1,17 @@
 import type { NextFunction, Request, Response } from 'express';
 import { timingSafeEqual } from 'node:crypto';
 import type { Config } from './config.js';
-import type { AuthContext } from './types.js';
+import type { AuthContext, AdminAuthContext } from './types.js';
+import { hashApiKey } from './api-keys.js';
+import type { Repository } from './repository.js';
+import type { AuthService } from './auth-service.js';
 
 declare global {
   // eslint-disable-next-line @typescript-eslint/no-namespace
   namespace Express {
     interface Request {
       auth?: AuthContext;
+      admin?: AdminAuthContext;
     }
   }
 }
@@ -21,11 +25,11 @@ function safeEqual(a: string, b: string): boolean {
 }
 
 /**
- * Resolves the `x-api-key` header into an AuthContext. The admin key may act on
- * any app; an app key is scoped to its own appId. Sending endpoints require
- * this middleware; the browser-facing subscribe endpoints do not.
+ * Resolves the `x-api-key` header into an AuthContext. The admin key (env) may
+ * act on any app; otherwise the key is looked up by hash in the DB and scoped to
+ * its app. Sending endpoints require this middleware; browser subscribe does not.
  */
-export function apiKeyAuth(config: Config) {
+export function apiKeyAuth(config: Config, repo: Repository) {
   return (req: Request, res: Response, next: NextFunction): void => {
     const provided = req.header('x-api-key');
     if (!provided) {
@@ -39,12 +43,12 @@ export function apiKeyAuth(config: Config) {
       return;
     }
 
-    for (const [appId, key] of Object.entries(config.appKeys)) {
-      if (safeEqual(provided, key)) {
-        req.auth = { isAdmin: false, appId };
-        next();
-        return;
-      }
+    const key = repo.findActiveApiKeyByHash(hashApiKey(provided));
+    if (key) {
+      repo.touchApiKey(key.id);
+      req.auth = { isAdmin: false, appId: key.appId };
+      next();
+      return;
     }
 
     res.status(403).json({ error: 'Invalid API key' });
@@ -73,4 +77,43 @@ export class HttpError extends Error {
   ) {
     super(message);
   }
+}
+
+/** True when an address is a bootstrap (env) admin or a DB-managed admin. */
+export function isAdminAddress(address: string, config: Config, repo: Repository): boolean {
+  const lower = address.toLowerCase();
+  return config.adminWallets.includes(lower) || repo.isDbAdmin(lower);
+}
+
+/**
+ * Verifies a Bearer JWT and ensures the address is whitelisted. Populates
+ * `req.admin`. 401 when the token is missing/invalid, 403 when not an admin.
+ */
+export function requireAdmin(config: Config, repo: Repository, authService: AuthService) {
+  return async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+    // Self-guarding: Express 4 does not catch rejected promises from middleware,
+    // so any throw here must be funnelled to the centralised error handler — a
+    // bare rejection would hang the request and surface as an unhandledRejection.
+    try {
+      const header = req.header('authorization');
+      const token = header?.startsWith('Bearer ') ? header.slice(7) : null;
+      if (!token) {
+        res.status(401).json({ error: 'Missing Bearer token' });
+        return;
+      }
+      const verified = await authService.verifyJwt(token);
+      if (!verified) {
+        res.status(401).json({ error: 'Invalid token' });
+        return;
+      }
+      if (!isAdminAddress(verified.address, config, repo)) {
+        res.status(403).json({ error: 'Wallet not authorized' });
+        return;
+      }
+      req.admin = { address: verified.address };
+      next();
+    } catch (err) {
+      next(err);
+    }
+  };
 }

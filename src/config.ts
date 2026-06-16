@@ -39,6 +39,14 @@ function parseAppKeys(raw: string): Record<string, string> {
   return out;
 }
 
+/** Split a comma-separated env value into a trimmed, non-empty list. */
+export function parseList(raw: string): string[] {
+  return raw
+    .split(',')
+    .map((s) => s.trim())
+    .filter((s) => s.length > 0);
+}
+
 export interface Config {
   port: number;
   host: string;
@@ -52,6 +60,13 @@ export interface Config {
   adminApiKey: string;
   appKeys: Record<string, string>;
   maxFailures: number;
+  adminWallets: string[];
+  dashboardOrigin: string;
+  thirdweb: {
+    secretKey: string;
+    authPrivateKey: string;
+    authDomain: string;
+  };
 }
 
 export function loadConfig(): Config {
@@ -69,5 +84,12 @@ export function loadConfig(): Config {
     adminApiKey: required('ADMIN_API_KEY'),
     appKeys: parseAppKeys(optional('APP_KEYS', '')),
     maxFailures: Number(optional('MAX_FAILURES', '5')),
+    adminWallets: parseList(optional('ADMIN_WALLETS', '')).map((a) => a.toLowerCase()),
+    dashboardOrigin: optional('DASHBOARD_ORIGIN', ''),
+    thirdweb: {
+      secretKey: required('THIRDWEB_SECRET_KEY'),
+      authPrivateKey: required('THIRDWEB_AUTH_PRIVATE_KEY'),
+      authDomain: required('THIRDWEB_AUTH_DOMAIN'),
+    },
   };
 }

@@ -79,12 +79,38 @@ See [`.env.example`](./.env.example). Key variables:
 | `VAPID_PRIVATE_KEY` | **Secret.** Signs push requests.                                  |
 | `VAPID_SUBJECT`     | `mailto:` or `https:` contact, required by push services.         |
 | `ADMIN_API_KEY`     | Master key — may send to / manage any app.                        |
-| `APP_KEYS`          | JSON `{ "<appId>": "<secret>" }` — per-app keys, scoped to that app. |
+| `APP_KEYS`          | Optional JSON `{ "<appId>": "<secret>" }`. Imported into the DB on first boot. |
 | `DATABASE_PATH`     | SQLite file location.                                             |
-| `CORS_ORIGINS`      | Comma-separated allowed origins for browser endpoints.            |
+| `CORS_ORIGINS`      | Optional. Imported into the DB on first boot; DB is source of truth after. |
+| `THIRDWEB_SECRET_KEY` | thirdweb project secret for admin dashboard auth.              |
+| `THIRDWEB_AUTH_PRIVATE_KEY` | **Secret.** Signs admin session JWTs (no funds needed).  |
+| `THIRDWEB_AUTH_DOMAIN` | SIWE domain shown to wallets, e.g. `push.p2p.me`.             |
+| `ADMIN_WALLETS`     | Comma-separated bootstrap admin wallet addresses.                |
+| `DASHBOARD_ORIGIN`  | Origin of the dashboard SPA, allowed on `/auth` + `/admin`.       |
 
 Each org app gets its own `appId` + key, so `merchant-app` can never push to
 `user-app` subscribers. The admin key is for internal tooling / cross-app sends.
+
+## Admin dashboard
+
+A separate wallet-authenticated dashboard (`dashboard/`) manages apps, API keys,
+and per-app CORS origins live in the database — replacing static `APP_KEYS` /
+`CORS_ORIGINS` env config (those are imported once on first boot).
+
+- **Login:** thirdweb in-app wallet (Google / email). Admins are whitelisted by
+  wallet address via `ADMIN_WALLETS` (bootstrap) plus dashboard-managed admins.
+- **First admin:** log in once to discover your embedded-wallet address (the UI
+  shows it when not yet authorized), add it to `ADMIN_WALLETS`, then restart.
+- **API keys** are shown in full exactly once at creation and stored hashed.
+
+Run the dashboard:
+
+```bash
+cd dashboard
+npm install
+cp .env.example .env   # set VITE_THIRDWEB_CLIENT_ID + VITE_API_BASE_URL
+npm run dev
+```
 
 ## HTTP API
 

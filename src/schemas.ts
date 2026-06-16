@@ -62,3 +62,23 @@ export const sendSchema = z
   );
 
 export type SendRequest = z.infer<typeof sendSchema>;
+
+export const createAppSchema = z.object({
+  appId: z.string().min(1).max(64).regex(/^[a-z0-9-]+$/, 'appId must be lowercase alphanumeric/hyphen'),
+  name: z.string().min(1).max(120),
+});
+
+export const updateAppSchema = z
+  .object({ name: z.string().min(1).max(120).optional(), disabled: z.boolean().optional() })
+  .refine((v) => v.name !== undefined || v.disabled !== undefined, {
+    message: 'Provide at least one of: name, disabled',
+  });
+
+export const createKeySchema = z.object({ label: z.string().min(1).max(120).optional() });
+
+export const addOriginSchema = z.object({ origin: z.string().url() });
+
+export const addAdminSchema = z.object({
+  address: z.string().regex(/^0x[a-fA-F0-9]{40}$/, 'address must be a 0x-prefixed 40-hex string'),
+  label: z.string().min(1).max(120).optional(),
+});

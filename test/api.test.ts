@@ -8,6 +8,8 @@ import { openDatabase } from '../src/db.js';
 import { Repository } from '../src/repository.js';
 import { PushSender } from '../src/webpush.js';
 import { createServer } from '../src/server.js';
+import { seedFromEnv } from '../src/seed.js';
+import { FakeAuthService } from './fake-auth-service.js';
 
 /**
  * End-to-end-ish tests against an in-memory DB. We exercise auth, validation,
@@ -25,6 +27,9 @@ const config: Config = {
   adminApiKey: 'admin-key',
   appKeys: { 'user-app': 'user-key', 'merchant-app': 'merchant-key' },
   maxFailures: 5,
+  adminWallets: [],
+  dashboardOrigin: 'http://localhost:5173',
+  thirdweb: { secretKey: 'x', authPrivateKey: 'x', authDomain: 'localhost' },
 };
 
 let server: Server;
@@ -38,7 +43,8 @@ before(async () => {
   const db = openDatabase(':memory:');
   const repo = new Repository(db);
   const sender = new PushSender(config, repo);
-  const app = createServer(config, repo, sender);
+  seedFromEnv(repo, { appKeys: config.appKeys, corsOrigins: [] });
+  const app = createServer(config, repo, sender, new FakeAuthService());
   await new Promise<void>((resolve) => {
     server = app.listen(0, '127.0.0.1', resolve);
   });
@@ -114,6 +120,15 @@ describe('auth', () => {
       body: JSON.stringify({ appId: 'user-app', userId: 'nobody', notification: { title: 'hi' } }),
     });
     assert.equal(res.status, 404);
+  });
+
+  it('rejects a revoked / unknown key with 403', async () => {
+    const res = await fetch(`${base}/notifications/send`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'x-api-key': 'pk_does_not_exist' },
+      body: JSON.stringify({ appId: 'user-app', userId: 'alice', notification: { title: 'hi' } }),
+    });
+    assert.equal(res.status, 403);
   });
 });
 
