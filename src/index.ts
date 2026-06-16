@@ -3,7 +3,7 @@ import { openDatabase } from './db.js';
 import { Repository } from './repository.js';
 import { createServer } from './server.js';
 import { PushSender } from './webpush.js';
-import { createThirdwebAuthService } from './auth-service.js';
+import { createAuthService } from './auth-service.js';
 import { seedFromEnv } from './seed.js';
 
 /** Composition root: load config, wire dependencies, start listening. */
@@ -29,7 +29,7 @@ function main(): void {
   }
 
   const sender = new PushSender(config, repo);
-  const authService = createThirdwebAuthService(config);
+  const authService = createAuthService(config);
   const app = createServer(config, repo, sender, authService);
 
   const server = app.listen(config.port, config.host, () => {
