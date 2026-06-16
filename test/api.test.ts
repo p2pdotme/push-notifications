@@ -9,6 +9,7 @@ import { Repository } from '../src/repository.js';
 import { PushSender } from '../src/webpush.js';
 import { createServer } from '../src/server.js';
 import { seedFromEnv } from '../src/seed.js';
+import { FakeAuthService } from './fake-auth-service.js';
 
 /**
  * End-to-end-ish tests against an in-memory DB. We exercise auth, validation,
@@ -43,7 +44,7 @@ before(async () => {
   const repo = new Repository(db);
   const sender = new PushSender(config, repo);
   seedFromEnv(repo, { appKeys: config.appKeys, corsOrigins: [] });
-  const app = createServer(config, repo, sender);
+  const app = createServer(config, repo, sender, new FakeAuthService());
   await new Promise<void>((resolve) => {
     server = app.listen(0, '127.0.0.1', resolve);
   });

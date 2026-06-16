@@ -1,15 +1,17 @@
 import type { NextFunction, Request, Response } from 'express';
 import { timingSafeEqual } from 'node:crypto';
 import type { Config } from './config.js';
-import type { AuthContext } from './types.js';
+import type { AuthContext, AdminAuthContext } from './types.js';
 import { hashApiKey } from './api-keys.js';
 import type { Repository } from './repository.js';
+import type { AuthService } from './auth-service.js';
 
 declare global {
   // eslint-disable-next-line @typescript-eslint/no-namespace
   namespace Express {
     interface Request {
       auth?: AuthContext;
+      admin?: AdminAuthContext;
     }
   }
 }
@@ -75,4 +77,36 @@ export class HttpError extends Error {
   ) {
     super(message);
   }
+}
+
+/** True when an address is a bootstrap (env) admin or a DB-managed admin. */
+export function isAdminAddress(address: string, config: Config, repo: Repository): boolean {
+  const lower = address.toLowerCase();
+  return config.adminWallets.includes(lower) || repo.isDbAdmin(lower);
+}
+
+/**
+ * Verifies a Bearer JWT and ensures the address is whitelisted. Populates
+ * `req.admin`. 401 when the token is missing/invalid, 403 when not an admin.
+ */
+export function requireAdmin(config: Config, repo: Repository, authService: AuthService) {
+  return async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+    const header = req.header('authorization');
+    const token = header?.startsWith('Bearer ') ? header.slice(7) : null;
+    if (!token) {
+      res.status(401).json({ error: 'Missing Bearer token' });
+      return;
+    }
+    const verified = await authService.verifyJwt(token);
+    if (!verified) {
+      res.status(401).json({ error: 'Invalid token' });
+      return;
+    }
+    if (!isAdminAddress(verified.address, config, repo)) {
+      res.status(403).json({ error: 'Wallet not authorized' });
+      return;
+    }
+    req.admin = { address: verified.address };
+    next();
+  };
 }

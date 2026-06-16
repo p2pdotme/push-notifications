@@ -6,6 +6,8 @@ import express, {
 } from 'express';
 import { ZodError } from 'zod';
 import { apiKeyAuth, HttpError } from './auth.js';
+import type { AuthService } from './auth-service.js';
+import { authRouter } from './routes/auth.js';
 import type { Config } from './config.js';
 import type { Repository } from './repository.js';
 import type { PushSender } from './webpush.js';
@@ -21,14 +23,11 @@ export interface AppContext {
   requireApiKey: ReturnType<typeof apiKeyAuth>;
 }
 
-/** Minimal CORS handling for the browser-facing endpoints. */
-function cors(origins: string[]) {
-  const allowAll = origins.includes('*');
+/** Browser CORS for subscribe/public endpoints: reflect any registered origin. */
+function browserCors(repo: Repository) {
   return (req: Request, res: Response, next: NextFunction): void => {
     const origin = req.header('origin');
-    if (allowAll) {
-      res.setHeader('Access-Control-Allow-Origin', '*');
-    } else if (origin && origins.includes(origin)) {
+    if (origin && repo.isOriginAllowedForAny(origin)) {
       res.setHeader('Access-Control-Allow-Origin', origin);
       res.setHeader('Vary', 'Origin');
     }
@@ -42,10 +41,29 @@ function cors(origins: string[]) {
   };
 }
 
+/** Admin-plane CORS: allow exactly the configured dashboard origin + Bearer. */
+function adminCors(config: Config) {
+  return (req: Request, res: Response, next: NextFunction): void => {
+    const origin = req.header('origin');
+    if (origin && origin === config.dashboardOrigin) {
+      res.setHeader('Access-Control-Allow-Origin', origin);
+      res.setHeader('Vary', 'Origin');
+    }
+    res.setHeader('Access-Control-Allow-Methods', 'GET,POST,PATCH,DELETE,OPTIONS');
+    res.setHeader('Access-Control-Allow-Headers', 'Content-Type,Authorization');
+    if (req.method === 'OPTIONS') {
+      res.sendStatus(204);
+      return;
+    }
+    next();
+  };
+}
+
 export function createServer(
   config: Config,
   repo: Repository,
   sender: PushSender,
+  authService: AuthService,
 ): Application {
   const ctx: AppContext = {
     config,
@@ -57,16 +75,21 @@ export function createServer(
   const app = express();
   app.disable('x-powered-by');
   app.use(express.json({ limit: '64kb' }));
-  app.use(cors(config.corsOrigins));
 
-  // Liveness + the VAPID public key clients need to subscribe.
+  // Liveness (no CORS needed).
   app.get('/health', (_req, res) => res.json({ status: 'ok' }));
-  app.get('/vapid-public-key', (_req, res) =>
+
+  // Browser-facing endpoints: per-app CORS.
+  app.get('/vapid-public-key', browserCors(repo), (_req, res) =>
     res.json({ publicKey: config.vapid.publicKey }),
   );
+  app.use('/subscriptions', browserCors(repo), subscriptionsRouter(ctx));
 
-  app.use('/subscriptions', subscriptionsRouter(ctx));
+  // Server-to-server delivery (x-api-key; no browser CORS).
   app.use('/notifications', notificationsRouter(ctx));
+
+  // Admin plane: dashboard-origin CORS + thirdweb auth.
+  app.use('/auth', adminCors(config), authRouter(config, repo, authService));
 
   // Centralised error handling: Zod -> 400, HttpError -> its status, else 500.
   app.use((err: unknown, _req: Request, res: Response, _next: NextFunction) => {

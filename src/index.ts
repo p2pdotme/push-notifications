@@ -3,6 +3,7 @@ import { openDatabase } from './db.js';
 import { Repository } from './repository.js';
 import { createServer } from './server.js';
 import { PushSender } from './webpush.js';
+import { createThirdwebAuthService } from './auth-service.js';
 
 /** Composition root: load config, wire dependencies, start listening. */
 function main(): void {
@@ -10,7 +11,8 @@ function main(): void {
   const db = openDatabase(config.databasePath);
   const repo = new Repository(db);
   const sender = new PushSender(config, repo);
-  const app = createServer(config, repo, sender);
+  const authService = createThirdwebAuthService(config);
+  const app = createServer(config, repo, sender, authService);
 
   const server = app.listen(config.port, config.host, () => {
     // eslint-disable-next-line no-console
