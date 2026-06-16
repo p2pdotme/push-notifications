@@ -103,7 +103,7 @@ export function loadConfig(): Config {
     maxFailures: Number(optional('MAX_FAILURES', '5')),
     adminWallets: parseList(optional('ADMIN_WALLETS', '')).map((a) => a.toLowerCase()),
     dashboardOrigin: optional('DASHBOARD_ORIGIN', ''),
-    authDomain: firstEnv(['AUTH_DOMAIN', 'THIRDWEB_AUTH_DOMAIN'], ''),
+    authDomain: required2(['AUTH_DOMAIN', 'THIRDWEB_AUTH_DOMAIN']),
     jwtSecret: required2(['AUTH_JWT_SECRET', 'THIRDWEB_AUTH_PRIVATE_KEY']),
     sendConcurrency: Number(optional('SEND_CONCURRENCY', '25')),
     logRetentionDays: Number(optional('LOG_RETENTION_DAYS', '0')),
