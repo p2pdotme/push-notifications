@@ -25,6 +25,9 @@ const config: Config = {
   adminApiKey: 'admin-key',
   appKeys: { 'user-app': 'user-key', 'merchant-app': 'merchant-key' },
   maxFailures: 5,
+  adminWallets: [],
+  dashboardOrigin: 'http://localhost:5173',
+  thirdweb: { secretKey: 'x', authPrivateKey: 'x', authDomain: 'localhost' },
 };
 
 let server: Server;

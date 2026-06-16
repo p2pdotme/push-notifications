@@ -16,17 +16,21 @@ export function seedFromEnv(
 
   const origins = env.corsOrigins.filter((o) => o !== '*');
 
-  for (const [appId, secret] of Object.entries(env.appKeys)) {
-    repo.createApp({ appId, name: appId });
-    repo.createApiKey({
-      appId,
-      keyHash: hashApiKey(secret),
-      keyPrefix: secret.slice(0, 10),
-      label: 'imported from APP_KEYS',
-      createdBy: null,
-    });
-    for (const origin of origins) {
-      repo.addCorsOrigin({ appId, origin });
+  // All-or-nothing: a crash mid-seed must not leave a partial state that the
+  // `listApps().length > 0` guard would then refuse to re-seed.
+  repo.transaction(() => {
+    for (const [appId, secret] of Object.entries(env.appKeys)) {
+      repo.createApp({ appId, name: appId });
+      repo.createApiKey({
+        appId,
+        keyHash: hashApiKey(secret),
+        keyPrefix: secret.slice(0, 10),
+        label: 'imported from APP_KEYS',
+        createdBy: null,
+      });
+      for (const origin of origins) {
+        repo.addCorsOrigin({ appId, origin });
+      }
     }
-  }
+  });
 }

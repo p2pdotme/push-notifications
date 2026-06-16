@@ -107,6 +107,11 @@ function toAdminRecord(row: AdminRow): AdminRecord {
 export class Repository {
   constructor(private readonly db: Database.Database) {}
 
+  /** Run `fn` inside a single synchronous SQLite transaction (all-or-nothing). */
+  transaction<T>(fn: () => T): T {
+    return this.db.transaction(fn)();
+  }
+
   /**
    * Insert a subscription, or refresh it if the endpoint already exists. The
    * endpoint is the stable unique identifier of a browser push channel, so an
@@ -328,6 +333,8 @@ export class Repository {
     const row = this.db
       .prepare(
         `INSERT INTO cors_origins (app_id, origin) VALUES (@appId, @origin)
+         -- Upsert is idempotent (origin unchanged); the no-op UPDATE only exists
+         -- so RETURNING yields the existing row when the origin is already present.
          ON CONFLICT(app_id, origin) DO UPDATE SET origin = excluded.origin
          RETURNING *`,
       )
@@ -367,6 +374,8 @@ export class Repository {
       .prepare(
         `INSERT INTO admins (address, label, added_by)
          VALUES (@address, @label, @addedBy)
+         -- Re-adding an existing admin refreshes the label but keeps the
+         -- original added_by (audit trail of who first granted access).
          ON CONFLICT(address) DO UPDATE SET label = excluded.label
          RETURNING *`,
       )

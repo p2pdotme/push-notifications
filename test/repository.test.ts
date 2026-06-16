@@ -62,6 +62,22 @@ describe('repository: api keys', () => {
     repo.revokeApiKey(rec.id);
     assert.equal(repo.findActiveApiKeyByHash(k.keyHash), null);
   });
+
+  it('records last-used on touch', () => {
+    const repo = freshRepo();
+    repo.createApp({ appId: 'user-app', name: 'User App' });
+    const k = generateApiKey();
+    const rec = repo.createApiKey({
+      appId: 'user-app',
+      keyHash: k.keyHash,
+      keyPrefix: k.keyPrefix,
+      label: null,
+      createdBy: null,
+    });
+    assert.equal(repo.listApiKeys('user-app')[0]?.lastUsedAt, null);
+    repo.touchApiKey(rec.id);
+    assert.notEqual(repo.listApiKeys('user-app')[0]?.lastUsedAt, null);
+  });
 });
 
 describe('repository: cors origins', () => {
