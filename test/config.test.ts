@@ -22,6 +22,8 @@ function baseEnv(): void {
   delete process.env.AUTH_JWT_SECRET;
   delete process.env.THIRDWEB_AUTH_DOMAIN;
   delete process.env.THIRDWEB_AUTH_PRIVATE_KEY;
+  delete process.env.SEND_CONCURRENCY;
+  delete process.env.LOG_RETENTION_DAYS;
 }
 
 describe('loadConfig auth env', () => {
@@ -57,5 +59,19 @@ describe('loadConfig auth env', () => {
     const c = loadConfig();
     assert.equal(c.sendConcurrency, 25);
     assert.equal(c.logRetentionDays, 0);
+  });
+
+  it('throws when no auth domain is set', () => {
+    baseEnv();
+    process.env.AUTH_JWT_SECRET = 's';
+    // no AUTH_DOMAIN / THIRDWEB_AUTH_DOMAIN
+    assert.throws(() => loadConfig());
+  });
+
+  it('throws when no jwt secret is set', () => {
+    baseEnv();
+    process.env.AUTH_DOMAIN = 'd';
+    // no AUTH_JWT_SECRET / THIRDWEB_AUTH_PRIVATE_KEY
+    assert.throws(() => loadConfig());
   });
 });
