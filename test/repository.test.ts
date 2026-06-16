@@ -126,3 +126,34 @@ describe('repository: admins', () => {
     assert.equal(repo.isDbAdmin('0xabc'), false);
   });
 });
+
+describe('pruneOldLogs', () => {
+  it('deletes only rows older than the retention window', () => {
+    const db = openDatabase(':memory:');
+    const repo = new Repository(db);
+    // One old row (40 days ago) and one fresh row.
+    db.prepare(
+      `INSERT INTO notification_logs (app_id, endpoint, status, created_at)
+       VALUES ('a', 'e1', 'sent', datetime('now', '-40 days'))`,
+    ).run();
+    db.prepare(
+      `INSERT INTO notification_logs (app_id, endpoint, status, created_at)
+       VALUES ('a', 'e2', 'sent', datetime('now'))`,
+    ).run();
+
+    const deleted = repo.pruneOldLogs(30);
+    assert.equal(deleted, 1);
+    const remaining = db
+      .prepare('SELECT COUNT(*) AS n FROM notification_logs')
+      .get() as { n: number };
+    assert.equal(remaining.n, 1);
+    db.close();
+  });
+
+  it('is a no-op when days <= 0', () => {
+    const db = openDatabase(':memory:');
+    const repo = new Repository(db);
+    assert.equal(repo.pruneOldLogs(0), 0);
+    db.close();
+  });
+});

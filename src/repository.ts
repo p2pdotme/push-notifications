@@ -218,6 +218,14 @@ export class Repository {
       .all(appId, limit);
   }
 
+  /** Delete logs older than `days`. No-op (returns 0) when days <= 0. */
+  pruneOldLogs(days: number): number {
+    if (days <= 0) return 0;
+    return this.db
+      .prepare(`DELETE FROM notification_logs WHERE created_at < datetime('now', ?)`)
+      .run(`-${days} days`).changes;
+  }
+
   countSubscriptions(appId: string): { total: number; active: number } {
     const row = this.db
       .prepare(

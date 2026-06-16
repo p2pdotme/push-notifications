@@ -19,6 +19,14 @@ function main(): void {
     corsOrigins: config.corsOrigins.filter((o) => o !== '*'),
   });
 
+  if (config.logRetentionDays > 0) {
+    const prune = () => repo.pruneOldLogs(config.logRetentionDays);
+    prune(); // prune once at startup
+    const HOUR = 60 * 60 * 1000;
+    const timer = setInterval(prune, HOUR);
+    timer.unref(); // don't keep the event loop alive for the timer alone
+  }
+
   if (!config.dashboardOrigin) {
     // eslint-disable-next-line no-console
     console.warn(
