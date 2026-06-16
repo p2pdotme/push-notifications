@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { assertAppAccess } from '../auth.js';
+import { assertAppAccess, HttpError } from '../auth.js';
 import { subscribeSchema, unsubscribeSchema } from '../schemas.js';
 import type { AppContext } from '../server.js';
 
@@ -14,6 +14,11 @@ export function subscriptionsRouter(ctx: AppContext): Router {
 
   router.post('/', (req, res) => {
     const parsed = subscribeSchema.parse(req.body);
+    // When a browser sends an Origin, it must be registered for this app.
+    const origin = req.header('origin');
+    if (origin && !ctx.repo.isOriginAllowedForApp(parsed.appId, origin)) {
+      throw new HttpError(403, `Origin ${origin} is not allowed for app "${parsed.appId}"`);
+    }
     const record = ctx.repo.upsertSubscription({
       appId: parsed.appId,
       userId: parsed.userId ?? null,

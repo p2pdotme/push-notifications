@@ -55,3 +55,44 @@ export interface AuthContext {
   /** The appId this key is scoped to, or null for admin. */
   appId: string | null;
 }
+
+/** A managed application (tenant). */
+export interface AppRecord {
+  appId: string;
+  name: string;
+  disabled: boolean;
+  createdAt: string;
+}
+
+/** API key metadata — never includes the secret or its hash. */
+export interface ApiKeyRecord {
+  id: number;
+  appId: string;
+  keyPrefix: string;
+  label: string | null;
+  createdBy: string | null;
+  createdAt: string;
+  lastUsedAt: string | null;
+  revokedAt: string | null;
+}
+
+/** A per-app allowed browser origin. */
+export interface CorsOriginRecord {
+  id: number;
+  appId: string;
+  origin: string;
+  createdAt: string;
+}
+
+/** A DB-managed admin wallet. */
+export interface AdminRecord {
+  address: string;
+  label: string | null;
+  addedBy: string | null;
+  createdAt: string;
+}
+
+/** Identity resolved from an admin Bearer JWT. */
+export interface AdminAuthContext {
+  address: string;
+}

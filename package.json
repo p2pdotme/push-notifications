@@ -23,6 +23,7 @@
     "better-sqlite3": "^11.8.1",
     "dotenv": "^16.4.7",
     "express": "^4.21.2",
+    "thirdweb": "^5.120.1",
     "web-push": "^3.6.7",
     "zod": "^3.24.1"
   },
