@@ -63,6 +63,22 @@ describe('repository: api keys', () => {
     assert.equal(repo.findActiveApiKeyByHash(k.keyHash), null);
   });
 
+  it('stops authenticating a key when its app is disabled', () => {
+    const repo = freshRepo();
+    repo.createApp({ appId: 'user-app', name: 'User App' });
+    const k = generateApiKey();
+    repo.createApiKey({
+      appId: 'user-app',
+      keyHash: k.keyHash,
+      keyPrefix: k.keyPrefix,
+      label: null,
+      createdBy: null,
+    });
+    assert.equal(repo.findActiveApiKeyByHash(k.keyHash)?.appId, 'user-app');
+    repo.updateApp('user-app', { disabled: true });
+    assert.equal(repo.findActiveApiKeyByHash(k.keyHash), null);
+  });
+
   it('records last-used on touch', () => {
     const repo = freshRepo();
     repo.createApp({ appId: 'user-app', name: 'User App' });

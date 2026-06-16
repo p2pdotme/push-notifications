@@ -13,6 +13,8 @@ async function req<T>(path: string, opts: RequestInit = {}): Promise<T> {
   });
   if (res.status === 401 || res.status === 403) {
     clearToken();
+    // Tell the app shell to drop the wallet session and return to the login gate.
+    window.dispatchEvent(new Event('push-admin-unauthorized'));
     throw new Error('Unauthorized');
   }
   if (!res.ok) {

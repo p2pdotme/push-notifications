@@ -19,6 +19,15 @@ function main(): void {
     corsOrigins: config.corsOrigins.filter((o) => o !== '*'),
   });
 
+  if (!config.dashboardOrigin) {
+    // eslint-disable-next-line no-console
+    console.warn(
+      'WARNING: DASHBOARD_ORIGIN is empty — browsers will be blocked by CORS from ' +
+        'calling /auth and /admin, so the admin dashboard cannot work. Set it to the ' +
+        'dashboard origin (e.g. https://admin.push.p2p.me).',
+    );
+  }
+
   const sender = new PushSender(config, repo);
   const authService = createThirdwebAuthService(config);
   const app = createServer(config, repo, sender, authService);

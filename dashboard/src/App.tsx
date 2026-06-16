@@ -1,5 +1,5 @@
-import { useActiveAccount } from 'thirdweb/react';
-import { ConnectButton, useActiveWallet } from 'thirdweb/react';
+import { useEffect } from 'react';
+import { ConnectButton, useActiveAccount, useActiveWallet, useDisconnect } from 'thirdweb/react';
 import { inAppWallet } from 'thirdweb/wallets';
 import { Link, Route, Routes } from 'react-router-dom';
 import { client } from './client.js';
@@ -13,6 +13,17 @@ const wallets = [inAppWallet({ auth: { options: ['google', 'email'] } })];
 export function App() {
   const account = useActiveAccount();
   const wallet = useActiveWallet();
+  const { disconnect } = useDisconnect();
+
+  // When the API rejects our token (expired or de-whitelisted), drop the wallet
+  // session so the UI returns to the signed-out gate instead of looping on errors.
+  useEffect(() => {
+    const onUnauthorized = (): void => {
+      if (wallet) disconnect(wallet);
+    };
+    window.addEventListener('push-admin-unauthorized', onUnauthorized);
+    return () => window.removeEventListener('push-admin-unauthorized', onUnauthorized);
+  }, [wallet, disconnect]);
 
   const connect = (
     <ConnectButton

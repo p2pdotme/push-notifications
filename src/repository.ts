@@ -302,12 +302,17 @@ export class Repository {
     return rows.map(toApiKeyRecord);
   }
 
-  /** Active (non-revoked) key for a hash, joined with its app. Null if none. */
+  /**
+   * Active key for a hash: must be non-revoked AND belong to an enabled app.
+   * Disabling an app therefore immediately stops its keys from authenticating.
+   * Null if none.
+   */
   findActiveApiKeyByHash(keyHash: string): ApiKeyRecord | null {
     const row = this.db
       .prepare(
-        `SELECT id, app_id, key_prefix, label, created_by, created_at, last_used_at, revoked_at
-         FROM api_keys WHERE key_hash = ? AND revoked_at IS NULL`,
+        `SELECT k.id, k.app_id, k.key_prefix, k.label, k.created_by, k.created_at, k.last_used_at, k.revoked_at
+         FROM api_keys k JOIN apps a ON a.app_id = k.app_id
+         WHERE k.key_hash = ? AND k.revoked_at IS NULL AND a.disabled = 0`,
       )
       .get(keyHash) as ApiKeyRow | undefined;
     return row ? toApiKeyRecord(row) : null;
