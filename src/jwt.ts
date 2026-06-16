@@ -22,6 +22,7 @@ export function verifyJwt(secret: string, token: string): { address: string } | 
   const parts = token.split('.');
   if (parts.length !== 3) return null;
   const [header, payload, providedSig] = parts;
+  if (header === undefined || payload === undefined || providedSig === undefined) return null;
 
   const expectedSig = sign(`${header}.${payload}`, secret);
   const a = Buffer.from(providedSig);
