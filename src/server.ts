@@ -89,7 +89,7 @@ export function createServer(
   // Server-to-server delivery (x-api-key; no browser CORS).
   app.use('/notifications', notificationsRouter(ctx));
 
-  // Admin plane: dashboard-origin CORS + thirdweb auth.
+  // Admin plane: dashboard-origin CORS + SIWE auth.
   app.use('/auth', adminCors(config), authRouter(config, repo, authService));
   app.use('/admin', adminCors(config), adminRouter(config, repo, authService));
 

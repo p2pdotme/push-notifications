@@ -1,12 +1,16 @@
-import { createThirdwebClient } from 'thirdweb';
-import { createAuth } from 'thirdweb/auth';
-import { privateKeyToAccount } from 'thirdweb/wallets';
 import type { Config } from './config.js';
+import {
+  createLoginMessage,
+  generateNonce,
+  recoverSiweAddress,
+  type LoginPayload,
+} from './siwe.js';
+import { issueJwt, verifyJwt } from './jwt.js';
 
 /**
- * Wraps thirdweb SIWE auth behind a narrow interface so the HTTP layer never
- * imports thirdweb directly and tests can inject a fake (no network).
- * `payload` is passed through opaquely between client and thirdweb.
+ * SIWE (EIP-4361) auth for the dashboard, with no third-party SDK. The HTTP
+ * layer depends only on this interface so tests can inject a fake. `payload` is
+ * passed through opaquely between client and this module.
  */
 export interface AuthService {
   /** Build a login payload for an address (sent to the client to sign). */
@@ -20,46 +24,48 @@ export interface AuthService {
   verifyJwt(token: string): Promise<{ address: string } | null>;
 }
 
-export function createThirdwebAuthService(config: Config): AuthService {
-  const client = createThirdwebClient({ secretKey: config.thirdweb.secretKey });
-  const auth = createAuth({
-    domain: config.thirdweb.authDomain,
-    client,
-    adminAccount: privateKeyToAccount({
-      client,
-      privateKey: config.thirdweb.authPrivateKey,
-    }),
-  });
+const PAYLOAD_TTL_MS = 10 * 60 * 1000; // login payload valid for 10 minutes
+const JWT_TTL_SECONDS = 7 * 24 * 60 * 60; // session token valid for 7 days
+const DEFAULT_STATEMENT =
+  'Please ensure that the domain above matches the URL of the current website.';
+
+export function createAuthService(config: Config): AuthService {
+  const { authDomain: domain, jwtSecret: secret } = config;
 
   return {
     async generatePayload(address) {
-      return auth.generatePayload({ address });
+      const now = Date.now();
+      const payload: LoginPayload = {
+        address,
+        domain,
+        uri: domain,
+        version: '1',
+        statement: DEFAULT_STATEMENT,
+        nonce: generateNonce(),
+        issued_at: new Date(now).toISOString(),
+        expiration_time: new Date(now + PAYLOAD_TTL_MS).toISOString(),
+        invalid_before: new Date(now - PAYLOAD_TTL_MS).toISOString(),
+      };
+      return payload;
     },
+
     async verifyAndIssueJwt(payload, signature) {
-      try {
-        const verified = await auth.verifyPayload({
-          // thirdweb owns this payload shape; we pass it through opaquely.
-          payload: payload as Parameters<typeof auth.verifyPayload>[0]['payload'],
-          signature,
-        });
-        if (!verified.valid) return null;
-        const token = await auth.generateJWT({ payload: verified.payload });
-        return { address: verified.payload.address.toLowerCase(), token };
-      } catch {
-        // Honour the interface contract: malformed input is a failure, not a throw.
-        return null;
-      }
+      const p = payload as LoginPayload | null;
+      if (!p || typeof p.address !== 'string') return null;
+
+      const recovered = recoverSiweAddress(p, signature);
+      if (!recovered || recovered !== p.address.toLowerCase()) return null;
+      if (p.domain !== domain) return null;
+
+      const now = Date.now();
+      if (p.expiration_time && Date.parse(p.expiration_time) < now) return null;
+      if (p.invalid_before && Date.parse(p.invalid_before) > now) return null;
+
+      return { address: recovered, token: issueJwt(secret, recovered, JWT_TTL_SECONDS) };
     },
+
     async verifyJwt(token) {
-      try {
-        const result = await auth.verifyJWT({ jwt: token });
-        if (!result.valid) return null;
-        const sub = result.parsedJWT.sub ?? '';
-        return sub ? { address: sub.toLowerCase() } : null;
-      } catch {
-        // thirdweb's decodeJWT throws on malformed tokens; treat as invalid.
-        return null;
-      }
+      return verifyJwt(secret, token);
     },
   };
 }
