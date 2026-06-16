@@ -56,4 +56,13 @@ describe('createAuthService', () => {
     const wrongSig = Signature.toHex(Secp256k1.sign({ payload: hash, privateKey: otherKey }));
     assert.equal(await svc.verifyAndIssueJwt(payload, wrongSig), null);
   });
+
+  it('rejects a not-yet-valid payload (invalid_before in the future)', async () => {
+    const svc = createAuthService(config);
+    const payload = (await svc.generatePayload(ADDRESS)) as LoginPayload;
+    const notYet = { ...payload, invalid_before: new Date(Date.now() + 60_000).toISOString() };
+    // Sign the modified payload so the signature and domain both pass — this
+    // isolates the invalid_before (not-yet-valid) rejection path.
+    assert.equal(await svc.verifyAndIssueJwt(notYet, sign(notYet)), null);
+  });
 });
