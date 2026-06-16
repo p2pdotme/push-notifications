@@ -208,3 +208,34 @@ describe('admin routes', () => {
     close();
   });
 });
+
+describe('per-app subscribe CORS enforcement', () => {
+  it('allows a registered origin and blocks an unregistered one', async () => {
+    const config = makeConfig();
+    const { base, repo, close } = await startServer(config);
+    repo.createApp({ appId: 'user-app', name: 'User App' });
+    repo.addCorsOrigin({ appId: 'user-app', origin: 'https://app.p2p.me' });
+
+    const sub = {
+      appId: 'user-app',
+      userId: 'alice',
+      subscription: { endpoint: 'https://push.example.com/x', keys: { p256dh: 'p'.repeat(20), auth: 'a'.repeat(16) } },
+    };
+
+    const ok = await fetch(`${base}/subscriptions`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Origin: 'https://app.p2p.me' },
+      body: JSON.stringify(sub),
+    });
+    assert.equal(ok.status, 201);
+
+    const blocked = await fetch(`${base}/subscriptions`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Origin: 'https://evil.example' },
+      body: JSON.stringify(sub),
+    });
+    assert.equal(blocked.status, 403);
+
+    close();
+  });
+});
