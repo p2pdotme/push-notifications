@@ -1,0 +1,64 @@
+import { z } from 'zod';
+
+/** Validation schemas for request bodies. Keeps untrusted input honest. */
+
+export const pushSubscriptionSchema = z.object({
+  endpoint: z.string().url(),
+  expirationTime: z.number().nullable().optional(),
+  keys: z.object({
+    p256dh: z.string().min(1),
+    auth: z.string().min(1),
+  }),
+});
+
+export const subscribeSchema = z.object({
+  appId: z.string().min(1),
+  userId: z.string().min(1).nullable().optional(),
+  subscription: pushSubscriptionSchema,
+});
+
+export const unsubscribeSchema = z.object({
+  endpoint: z.string().url(),
+});
+
+export const notificationPayloadSchema = z.object({
+  title: z.string().min(1),
+  body: z.string().optional(),
+  icon: z.string().optional(),
+  badge: z.string().optional(),
+  image: z.string().optional(),
+  url: z.string().optional(),
+  tag: z.string().optional(),
+  requireInteraction: z.boolean().optional(),
+  silent: z.boolean().optional(),
+  data: z.record(z.unknown()).optional(),
+  actions: z
+    .array(
+      z.object({
+        action: z.string(),
+        title: z.string(),
+        icon: z.string().optional(),
+      }),
+    )
+    .optional(),
+});
+
+export const sendSchema = z
+  .object({
+    appId: z.string().min(1),
+    /** Target a single user. */
+    userId: z.string().min(1).optional(),
+    /** Target several users in one call. */
+    userIds: z.array(z.string().min(1)).optional(),
+    /** Send to every active subscription of the app. */
+    broadcast: z.boolean().optional(),
+    notification: notificationPayloadSchema,
+    ttl: z.number().int().min(0).optional(),
+    urgency: z.enum(['very-low', 'low', 'normal', 'high']).optional(),
+  })
+  .refine(
+    (v) => v.broadcast || v.userId || (v.userIds && v.userIds.length > 0),
+    { message: 'Specify one of: userId, userIds, or broadcast=true' },
+  );
+
+export type SendRequest = z.infer<typeof sendSchema>;

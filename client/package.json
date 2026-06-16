@@ -1,0 +1,17 @@
+{
+  "name": "@p2pdotme/push-client",
+  "version": "0.1.0",
+  "description": "Framework-agnostic browser client for the p2p.me self-hosted push notification service.",
+  "license": "MIT",
+  "type": "module",
+  "main": "dist/index.js",
+  "module": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "files": ["dist", "service-worker.js"],
+  "scripts": {
+    "build": "tsc -p tsconfig.json"
+  },
+  "devDependencies": {
+    "typescript": "^5.7.3"
+  }
+}

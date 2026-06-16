@@ -1,0 +1,22 @@
+services:
+  push:
+    build: .
+    restart: unless-stopped
+    ports:
+      - "4000:4000"
+    environment:
+      PORT: 4000
+      HOST: 0.0.0.0
+      DATABASE_PATH: /app/data/push.sqlite
+      # Provide these via an .env file or your secrets manager:
+      VAPID_PUBLIC_KEY: ${VAPID_PUBLIC_KEY}
+      VAPID_PRIVATE_KEY: ${VAPID_PRIVATE_KEY}
+      VAPID_SUBJECT: ${VAPID_SUBJECT:-mailto:dev@p2p.me}
+      ADMIN_API_KEY: ${ADMIN_API_KEY}
+      APP_KEYS: ${APP_KEYS}
+      CORS_ORIGINS: ${CORS_ORIGINS:-*}
+    volumes:
+      - push-data:/app/data
+
+volumes:
+  push-data:
