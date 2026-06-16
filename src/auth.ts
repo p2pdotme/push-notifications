@@ -91,22 +91,29 @@ export function isAdminAddress(address: string, config: Config, repo: Repository
  */
 export function requireAdmin(config: Config, repo: Repository, authService: AuthService) {
   return async (req: Request, res: Response, next: NextFunction): Promise<void> => {
-    const header = req.header('authorization');
-    const token = header?.startsWith('Bearer ') ? header.slice(7) : null;
-    if (!token) {
-      res.status(401).json({ error: 'Missing Bearer token' });
-      return;
+    // Self-guarding: Express 4 does not catch rejected promises from middleware,
+    // so any throw here must be funnelled to the centralised error handler — a
+    // bare rejection would hang the request and surface as an unhandledRejection.
+    try {
+      const header = req.header('authorization');
+      const token = header?.startsWith('Bearer ') ? header.slice(7) : null;
+      if (!token) {
+        res.status(401).json({ error: 'Missing Bearer token' });
+        return;
+      }
+      const verified = await authService.verifyJwt(token);
+      if (!verified) {
+        res.status(401).json({ error: 'Invalid token' });
+        return;
+      }
+      if (!isAdminAddress(verified.address, config, repo)) {
+        res.status(403).json({ error: 'Wallet not authorized' });
+        return;
+      }
+      req.admin = { address: verified.address };
+      next();
+    } catch (err) {
+      next(err);
     }
-    const verified = await authService.verifyJwt(token);
-    if (!verified) {
-      res.status(401).json({ error: 'Invalid token' });
-      return;
-    }
-    if (!isAdminAddress(verified.address, config, repo)) {
-      res.status(403).json({ error: 'Wallet not authorized' });
-      return;
-    }
-    req.admin = { address: verified.address };
-    next();
   };
 }

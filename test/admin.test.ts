@@ -9,6 +9,7 @@ import { openDatabase } from '../src/db.js';
 import { Repository } from '../src/repository.js';
 import { PushSender } from '../src/webpush.js';
 import { createServer } from '../src/server.js';
+import type { AuthService } from '../src/auth-service.js';
 
 const vapid = webpush.generateVAPIDKeys();
 const ADMIN = '0xadmin0000000000000000000000000000000001';
@@ -237,5 +238,36 @@ describe('per-app subscribe CORS enforcement', () => {
     assert.equal(blocked.status, 403);
 
     close();
+  });
+});
+
+describe('requireAdmin resilience', () => {
+  it('responds 500 (does not hang) when the auth service throws', async () => {
+    // The real thirdweb verifyJwt throws on malformed tokens; requireAdmin must
+    // funnel that to the error handler rather than leaving the request hanging.
+    const throwingAuth: AuthService = {
+      async generatePayload() {
+        return {};
+      },
+      async verifyAndIssueJwt() {
+        return null;
+      },
+      async verifyJwt() {
+        throw new Error('Invalid JWT');
+      },
+    };
+    const config = makeConfig();
+    const repo = new Repository(openDatabase(':memory:'));
+    const sender = new PushSender(config, repo);
+    const app = createServer(config, repo, sender, throwingAuth);
+    const server: Server = await new Promise((resolve) => {
+      const s = app.listen(0, '127.0.0.1', () => resolve(s));
+    });
+    const addr = server.address() as AddressInfo;
+    const res = await fetch(`http://127.0.0.1:${addr.port}/admin/apps`, {
+      headers: { Authorization: 'Bearer malformed.token' },
+    });
+    assert.equal(res.status, 500);
+    server.close();
   });
 });

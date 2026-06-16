@@ -36,20 +36,30 @@ export function createThirdwebAuthService(config: Config): AuthService {
       return auth.generatePayload({ address });
     },
     async verifyAndIssueJwt(payload, signature) {
-      const verified = await auth.verifyPayload({
-        // thirdweb owns this payload shape; we pass it through opaquely.
-        payload: payload as Parameters<typeof auth.verifyPayload>[0]['payload'],
-        signature,
-      });
-      if (!verified.valid) return null;
-      const token = await auth.generateJWT({ payload: verified.payload });
-      return { address: verified.payload.address.toLowerCase(), token };
+      try {
+        const verified = await auth.verifyPayload({
+          // thirdweb owns this payload shape; we pass it through opaquely.
+          payload: payload as Parameters<typeof auth.verifyPayload>[0]['payload'],
+          signature,
+        });
+        if (!verified.valid) return null;
+        const token = await auth.generateJWT({ payload: verified.payload });
+        return { address: verified.payload.address.toLowerCase(), token };
+      } catch {
+        // Honour the interface contract: malformed input is a failure, not a throw.
+        return null;
+      }
     },
     async verifyJwt(token) {
-      const result = await auth.verifyJWT({ jwt: token });
-      if (!result.valid) return null;
-      const sub = result.parsedJWT.sub ?? '';
-      return sub ? { address: sub.toLowerCase() } : null;
+      try {
+        const result = await auth.verifyJWT({ jwt: token });
+        if (!result.valid) return null;
+        const sub = result.parsedJWT.sub ?? '';
+        return sub ? { address: sub.toLowerCase() } : null;
+      } catch {
+        // thirdweb's decodeJWT throws on malformed tokens; treat as invalid.
+        return null;
+      }
     },
   };
 }

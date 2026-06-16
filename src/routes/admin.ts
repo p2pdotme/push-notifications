@@ -1,5 +1,4 @@
 import { Router } from 'express';
-import { asyncHandler } from '../async-handler.js';
 import { HttpError, requireAdmin } from '../auth.js';
 import { generateApiKey } from '../api-keys.js';
 import type { AuthService } from '../auth-service.js';
