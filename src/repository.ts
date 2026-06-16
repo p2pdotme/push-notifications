@@ -1,5 +1,12 @@
 import type Database from 'better-sqlite3';
-import type { PushSubscriptionJSON, SubscriptionRecord } from './types.js';
+import type {
+  AdminRecord,
+  ApiKeyRecord,
+  AppRecord,
+  CorsOriginRecord,
+  PushSubscriptionJSON,
+  SubscriptionRecord,
+} from './types.js';
 
 interface SubscriptionRow {
   id: number;
@@ -29,6 +36,68 @@ function toRecord(row: SubscriptionRow): SubscriptionRecord {
     failureCount: row.failure_count,
     disabled: row.disabled,
   };
+}
+
+interface AppRow {
+  app_id: string;
+  name: string;
+  disabled: number;
+  created_at: string;
+}
+
+function toAppRecord(row: AppRow): AppRecord {
+  return {
+    appId: row.app_id,
+    name: row.name,
+    disabled: row.disabled === 1,
+    createdAt: row.created_at,
+  };
+}
+
+interface ApiKeyRow {
+  id: number;
+  app_id: string;
+  key_prefix: string;
+  label: string | null;
+  created_by: string | null;
+  created_at: string;
+  last_used_at: string | null;
+  revoked_at: string | null;
+}
+
+function toApiKeyRecord(row: ApiKeyRow): ApiKeyRecord {
+  return {
+    id: row.id,
+    appId: row.app_id,
+    keyPrefix: row.key_prefix,
+    label: row.label,
+    createdBy: row.created_by,
+    createdAt: row.created_at,
+    lastUsedAt: row.last_used_at,
+    revokedAt: row.revoked_at,
+  };
+}
+
+interface CorsOriginRow {
+  id: number;
+  app_id: string;
+  origin: string;
+  created_at: string;
+}
+
+function toCorsOriginRecord(row: CorsOriginRow): CorsOriginRecord {
+  return { id: row.id, appId: row.app_id, origin: row.origin, createdAt: row.created_at };
+}
+
+interface AdminRow {
+  address: string;
+  label: string | null;
+  added_by: string | null;
+  created_at: string;
+}
+
+function toAdminRecord(row: AdminRow): AdminRecord {
+  return { address: row.address, label: row.label, addedBy: row.added_by, createdAt: row.created_at };
 }
 
 /**
@@ -154,5 +223,174 @@ export class Repository {
       )
       .get(appId) as { total: number; active: number | null };
     return { total: row.total, active: row.active ?? 0 };
+  }
+
+  // --- Apps -----------------------------------------------------------------
+
+  createApp(input: { appId: string; name: string }): AppRecord {
+    const row = this.db
+      .prepare(
+        `INSERT INTO apps (app_id, name) VALUES (@appId, @name) RETURNING *`,
+      )
+      .get(input) as AppRow;
+    return toAppRecord(row);
+  }
+
+  listApps(): AppRecord[] {
+    const rows = this.db
+      .prepare('SELECT * FROM apps ORDER BY created_at')
+      .all() as AppRow[];
+    return rows.map(toAppRecord);
+  }
+
+  getApp(appId: string): AppRecord | null {
+    const row = this.db
+      .prepare('SELECT * FROM apps WHERE app_id = ?')
+      .get(appId) as AppRow | undefined;
+    return row ? toAppRecord(row) : null;
+  }
+
+  updateApp(
+    appId: string,
+    patch: { name?: string; disabled?: boolean },
+  ): AppRecord | null {
+    const current = this.getApp(appId);
+    if (!current) return null;
+    const name = patch.name ?? current.name;
+    const disabled = patch.disabled ?? current.disabled;
+    this.db
+      .prepare('UPDATE apps SET name = ?, disabled = ? WHERE app_id = ?')
+      .run(name, disabled ? 1 : 0, appId);
+    return this.getApp(appId);
+  }
+
+  deleteApp(appId: string): boolean {
+    return this.db.prepare('DELETE FROM apps WHERE app_id = ?').run(appId).changes > 0;
+  }
+
+  // --- API keys -------------------------------------------------------------
+
+  createApiKey(input: {
+    appId: string;
+    keyHash: string;
+    keyPrefix: string;
+    label: string | null;
+    createdBy: string | null;
+  }): ApiKeyRecord {
+    const row = this.db
+      .prepare(
+        `INSERT INTO api_keys (app_id, key_hash, key_prefix, label, created_by)
+         VALUES (@appId, @keyHash, @keyPrefix, @label, @createdBy)
+         RETURNING id, app_id, key_prefix, label, created_by, created_at, last_used_at, revoked_at`,
+      )
+      .get(input) as ApiKeyRow;
+    return toApiKeyRecord(row);
+  }
+
+  listApiKeys(appId: string): ApiKeyRecord[] {
+    const rows = this.db
+      .prepare(
+        `SELECT id, app_id, key_prefix, label, created_by, created_at, last_used_at, revoked_at
+         FROM api_keys WHERE app_id = ? ORDER BY created_at DESC`,
+      )
+      .all(appId) as ApiKeyRow[];
+    return rows.map(toApiKeyRecord);
+  }
+
+  /** Active (non-revoked) key for a hash, joined with its app. Null if none. */
+  findActiveApiKeyByHash(keyHash: string): ApiKeyRecord | null {
+    const row = this.db
+      .prepare(
+        `SELECT id, app_id, key_prefix, label, created_by, created_at, last_used_at, revoked_at
+         FROM api_keys WHERE key_hash = ? AND revoked_at IS NULL`,
+      )
+      .get(keyHash) as ApiKeyRow | undefined;
+    return row ? toApiKeyRecord(row) : null;
+  }
+
+  revokeApiKey(id: number): boolean {
+    return (
+      this.db
+        .prepare("UPDATE api_keys SET revoked_at = datetime('now') WHERE id = ? AND revoked_at IS NULL")
+        .run(id).changes > 0
+    );
+  }
+
+  touchApiKey(id: number): void {
+    this.db
+      .prepare("UPDATE api_keys SET last_used_at = datetime('now') WHERE id = ?")
+      .run(id);
+  }
+
+  // --- CORS origins ---------------------------------------------------------
+
+  addCorsOrigin(input: { appId: string; origin: string }): CorsOriginRecord {
+    const row = this.db
+      .prepare(
+        `INSERT INTO cors_origins (app_id, origin) VALUES (@appId, @origin)
+         ON CONFLICT(app_id, origin) DO UPDATE SET origin = excluded.origin
+         RETURNING *`,
+      )
+      .get(input) as CorsOriginRow;
+    return toCorsOriginRecord(row);
+  }
+
+  listCorsOrigins(appId: string): CorsOriginRecord[] {
+    const rows = this.db
+      .prepare('SELECT * FROM cors_origins WHERE app_id = ? ORDER BY origin')
+      .all(appId) as CorsOriginRow[];
+    return rows.map(toCorsOriginRecord);
+  }
+
+  deleteCorsOrigin(id: number): boolean {
+    return this.db.prepare('DELETE FROM cors_origins WHERE id = ?').run(id).changes > 0;
+  }
+
+  isOriginAllowedForApp(appId: string, origin: string): boolean {
+    const row = this.db
+      .prepare('SELECT 1 FROM cors_origins WHERE app_id = ? AND origin = ? LIMIT 1')
+      .get(appId, origin);
+    return row !== undefined;
+  }
+
+  isOriginAllowedForAny(origin: string): boolean {
+    const row = this.db
+      .prepare('SELECT 1 FROM cors_origins WHERE origin = ? LIMIT 1')
+      .get(origin);
+    return row !== undefined;
+  }
+
+  // --- Admins ---------------------------------------------------------------
+
+  addAdmin(input: { address: string; label: string | null; addedBy: string | null }): AdminRecord {
+    const row = this.db
+      .prepare(
+        `INSERT INTO admins (address, label, added_by)
+         VALUES (@address, @label, @addedBy)
+         ON CONFLICT(address) DO UPDATE SET label = excluded.label
+         RETURNING *`,
+      )
+      .get({ ...input, address: input.address.toLowerCase() }) as AdminRow;
+    return toAdminRecord(row);
+  }
+
+  listAdmins(): AdminRecord[] {
+    const rows = this.db
+      .prepare('SELECT * FROM admins ORDER BY created_at')
+      .all() as AdminRow[];
+    return rows.map(toAdminRecord);
+  }
+
+  removeAdmin(address: string): boolean {
+    return (
+      this.db.prepare('DELETE FROM admins WHERE address = ?').run(address.toLowerCase()).changes > 0
+    );
+  }
+
+  isDbAdmin(address: string): boolean {
+    const row = this.db
+      .prepare('SELECT 1 FROM admins WHERE address = ? LIMIT 1')
+      .get(address.toLowerCase());
+    return row !== undefined;
   }
 }
