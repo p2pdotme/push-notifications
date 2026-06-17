@@ -34,11 +34,20 @@ export const authConfig = {
     });
     if (!res.ok) {
       const err = (await res.json().catch(() => ({}))) as { error?: string; address?: string };
+      // A 403 means the signature was valid but the wallet isn't an admin yet.
+      // Surface the resolved address so the UI can tell the operator exactly
+      // which wallet to add to ADMIN_WALLETS.
+      if (res.status === 403 && err.address) {
+        window.dispatchEvent(
+          new CustomEvent('push-admin-not-authorized', { detail: { address: err.address } }),
+        );
+      }
       const hint = err.address ? ` Your wallet: ${err.address}` : '';
       throw new Error(`${err.error ?? 'Login failed'}.${hint}`);
     }
     const body = (await res.json()) as { token: string };
     setToken(body.token);
+    window.dispatchEvent(new Event('push-admin-authorized'));
   },
 
   doLogout: async (): Promise<void> => {
