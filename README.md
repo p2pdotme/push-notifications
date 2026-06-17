@@ -20,8 +20,8 @@ It implements the W3C/IETF web push stack directly:
   ECDH + AES-128-GCM, so push services relay ciphertext they cannot read.
 
 The heavy crypto is handled by the battle-tested [`web-push`](https://github.com/web-push-libs/web-push)
-library. Subscriptions and a delivery audit log live in a local **SQLite** file
-— genuinely self-contained, nothing else to run.
+library. Subscriptions and a delivery audit log live in **PostgreSQL** — managed
+on Railway or any Postgres host; docker-compose bundles one locally.
 
 The server has **no thirdweb runtime dependency**. SIWE signatures are verified
 with [`ox`](https://github.com/wevm/ox) (secp256k1), and admin sessions use an
@@ -36,7 +36,7 @@ as a dev-time contract-test dependency.
         ▲   stores subscription │  send (x-api-key)   ▲
         │                       ▼                      │
         │                 ┌──────────┐         ┌───────────────┐
-        └─────────────────│  SQLite  │         │ p2p.me backend│
+        └─────────────────│ Postgres │         │ p2p.me backend│
                           └──────────┘         └───────────────┘
 ```
 
@@ -67,10 +67,10 @@ npm run dev            # watch mode
 npm run build && npm start
 ```
 
-Or with Docker:
+Or with Docker (includes a bundled `postgres` service — no separate DB needed):
 
 ```bash
-# .env must contain VAPID_*, ADMIN_API_KEY, APP_KEYS
+# .env must contain VAPID_*, ADMIN_API_KEY, APP_KEYS, AUTH_JWT_SECRET
 docker compose up --build
 ```
 
@@ -89,12 +89,13 @@ See [`.env.example`](./.env.example). Key variables:
 | `VAPID_SUBJECT`       | `mailto:` or `https:` contact, required by push services.                     |
 | `ADMIN_API_KEY`       | Master key — may send to / manage any app.                                    |
 | `APP_KEYS`            | Optional JSON `{ "<appId>": "<secret>" }`. Imported into the DB on first boot. |
-| `DATABASE_PATH`       | SQLite file location.                                                          |
+| `DATABASE_URL`        | PostgreSQL connection string (Railway: `${{Postgres.DATABASE_URL}}`).          |
 | `CORS_ORIGINS`        | Optional. Imported into the DB on first boot; DB is source of truth after.    |
 | `AUTH_DOMAIN`         | SIWE domain shown to wallets (e.g. `push.p2p.me`). Replaces `THIRDWEB_AUTH_DOMAIN` (still accepted as fallback). |
 | `AUTH_JWT_SECRET`     | **Secret.** 32+ random bytes used to sign HS256 admin session JWTs. Replaces `THIRDWEB_AUTH_PRIVATE_KEY` (still accepted as fallback). |
 | `ADMIN_WALLETS`       | Comma-separated bootstrap admin wallet addresses.                              |
 | `DASHBOARD_ORIGIN`    | Origin of the dashboard SPA, allowed on `/auth` + `/admin`.                   |
+| `MAX_FAILURES`        | Consecutive delivery failures before a subscription is auto-disabled (default: `5`). |
 | `SEND_CONCURRENCY`    | Max push sends in flight at once (default: `25`).                              |
 | `LOG_RETENTION_DAYS`  | Delete delivery logs older than N days (`0` = keep forever, default).          |
 | `NODE_OPTIONS`        | Set in the Docker runtime stage to cap V8 heap: `--max-old-space-size=128 --max-semi-space-size=2`. Override for larger hosts. |
@@ -206,9 +207,8 @@ and [`examples/send.mjs`](./examples/send.mjs) for a backend sender.
   subscription, so store them durably.
 - The subscribe endpoint isn't behind an API key (browsers can't keep secrets);
   protect it with CORS + a rate limiter / WAF at your edge in production.
-- SQLite suits a single instance comfortably. For multi-instance HA, put the
-  repository layer behind Postgres — the data-access code is isolated in
-  `src/repository.ts`.
+- Postgres backs the store, so the service scales to multiple replicas and gets
+  managed backups on Railway.
 
 ## Development
 

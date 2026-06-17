@@ -1,4 +1,5 @@
 import { Router } from 'express';
+import { asyncHandler } from '../async-handler.js';
 import { assertAppAccess, HttpError } from '../auth.js';
 import { subscribeSchema, unsubscribeSchema } from '../schemas.js';
 import type { AppContext } from '../server.js';
@@ -12,34 +13,32 @@ import type { AppContext } from '../server.js';
 export function subscriptionsRouter(ctx: AppContext): Router {
   const router = Router();
 
-  router.post('/', (req, res) => {
+  router.post('/', asyncHandler(async (req, res) => {
     const parsed = subscribeSchema.parse(req.body);
-    // When a browser sends an Origin, it must be registered for this app.
     const origin = req.header('origin');
-    if (origin && !ctx.repo.isOriginAllowedForApp(parsed.appId, origin)) {
+    if (origin && !(await ctx.repo.isOriginAllowedForApp(parsed.appId, origin))) {
       throw new HttpError(403, `Origin ${origin} is not allowed for app "${parsed.appId}"`);
     }
-    const record = ctx.repo.upsertSubscription({
+    const record = await ctx.repo.upsertSubscription({
       appId: parsed.appId,
       userId: parsed.userId ?? null,
       subscription: parsed.subscription,
       userAgent: req.header('user-agent') ?? null,
     });
     res.status(201).json({ id: record.id, appId: record.appId });
-  });
+  }));
 
-  router.delete('/', (req, res) => {
+  router.delete('/', asyncHandler(async (req, res) => {
     const parsed = unsubscribeSchema.parse(req.body);
-    const removed = ctx.repo.deleteByEndpoint(parsed.endpoint);
+    const removed = await ctx.repo.deleteByEndpoint(parsed.endpoint);
     res.json({ removed });
-  });
+  }));
 
-  // Admin/app-scoped: subscription counts for an app.
-  router.get('/stats/:appId', ctx.requireApiKey, (req, res) => {
+  router.get('/stats/:appId', ctx.requireApiKey, asyncHandler(async (req, res) => {
     const appId = req.params.appId as string;
     assertAppAccess(req.auth, appId);
-    res.json(ctx.repo.countSubscriptions(appId));
-  });
+    res.json(await ctx.repo.countSubscriptions(appId));
+  }));
 
   return router;
 }

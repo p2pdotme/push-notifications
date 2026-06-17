@@ -4,12 +4,12 @@ import type { Server } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import webpush from 'web-push';
 import type { Config } from '../src/config.js';
-import { openDatabase } from '../src/db.js';
 import { Repository } from '../src/repository.js';
 import { PushSender } from '../src/webpush.js';
 import { createServer } from '../src/server.js';
 import { seedFromEnv } from '../src/seed.js';
 import { FakeAuthService } from './fake-auth-service.js';
+import { createTestPool } from './helpers/test-db.js';
 
 /**
  * End-to-end-ish tests against an in-memory DB. We exercise auth, validation,
@@ -23,13 +23,16 @@ const config: Config = {
   host: '127.0.0.1',
   corsOrigins: ['*'],
   vapid: { publicKey: vapid.publicKey, privateKey: vapid.privateKey, subject: 'mailto:test@p2p.me' },
-  databasePath: ':memory:',
+  databaseUrl: 'postgresql://localhost/test',
   adminApiKey: 'admin-key',
   appKeys: { 'user-app': 'user-key', 'merchant-app': 'merchant-key' },
   maxFailures: 5,
   adminWallets: [],
   dashboardOrigin: 'http://localhost:5173',
-  thirdweb: { secretKey: 'x', authPrivateKey: 'x', authDomain: 'localhost' },
+  authDomain: 'localhost',
+  jwtSecret: 'x',
+  sendConcurrency: 25,
+  logRetentionDays: 0,
 };
 
 let server: Server;
@@ -40,10 +43,10 @@ function makeSubscription(endpoint: string) {
 }
 
 before(async () => {
-  const db = openDatabase(':memory:');
+  const db = await createTestPool();
   const repo = new Repository(db);
   const sender = new PushSender(config, repo);
-  seedFromEnv(repo, { appKeys: config.appKeys, corsOrigins: [] });
+  await seedFromEnv(repo, { appKeys: config.appKeys, corsOrigins: [] });
   const app = createServer(config, repo, sender, new FakeAuthService());
   await new Promise<void>((resolve) => {
     server = app.listen(0, '127.0.0.1', resolve);

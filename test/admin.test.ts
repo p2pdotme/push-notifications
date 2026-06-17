@@ -5,11 +5,11 @@ import type { Server } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import webpush from 'web-push';
 import type { Config } from '../src/config.js';
-import { openDatabase } from '../src/db.js';
 import { Repository } from '../src/repository.js';
 import { PushSender } from '../src/webpush.js';
 import { createServer } from '../src/server.js';
 import type { AuthService } from '../src/auth-service.js';
+import { createTestPool } from './helpers/test-db.js';
 
 const vapid = webpush.generateVAPIDKeys();
 const ADMIN = '0xadmin0000000000000000000000000000000001';
@@ -20,18 +20,21 @@ function makeConfig(): Config {
     host: '127.0.0.1',
     corsOrigins: ['*'],
     vapid: { publicKey: vapid.publicKey, privateKey: vapid.privateKey, subject: 'mailto:test@p2p.me' },
-    databasePath: ':memory:',
+    databaseUrl: 'postgresql://localhost/test',
     adminApiKey: 'admin-key',
     appKeys: {},
     maxFailures: 5,
     adminWallets: [ADMIN],
     dashboardOrigin: 'http://localhost:5173',
-    thirdweb: { secretKey: 'x', authPrivateKey: 'x', authDomain: 'localhost' },
+    authDomain: 'localhost',
+    jwtSecret: 'x',
+    sendConcurrency: 25,
+    logRetentionDays: 0,
   };
 }
 
 async function startServer(config: Config): Promise<{ base: string; repo: Repository; close: () => void }> {
-  const repo = new Repository(openDatabase(':memory:'));
+  const repo = new Repository(await createTestPool());
   const sender = new PushSender(config, repo);
   const app = createServer(config, repo, sender, new FakeAuthService());
   const server: Server = await new Promise((resolve) => {
@@ -214,8 +217,8 @@ describe('per-app subscribe CORS enforcement', () => {
   it('allows a registered origin and blocks an unregistered one', async () => {
     const config = makeConfig();
     const { base, repo, close } = await startServer(config);
-    repo.createApp({ appId: 'user-app', name: 'User App' });
-    repo.addCorsOrigin({ appId: 'user-app', origin: 'https://app.p2p.me' });
+    await repo.createApp({ appId: 'user-app', name: 'User App' });
+    await repo.addCorsOrigin({ appId: 'user-app', origin: 'https://app.p2p.me' });
 
     const sub = {
       appId: 'user-app',
@@ -257,7 +260,7 @@ describe('requireAdmin resilience', () => {
       },
     };
     const config = makeConfig();
-    const repo = new Repository(openDatabase(':memory:'));
+    const repo = new Repository(await createTestPool());
     const sender = new PushSender(config, repo);
     const app = createServer(config, repo, sender, throwingAuth);
     const server: Server = await new Promise((resolve) => {
