@@ -1,4 +1,4 @@
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { ConnectButton, useActiveAccount, useActiveWallet, useDisconnect } from 'thirdweb/react';
 import { inAppWallet } from 'thirdweb/wallets';
 import { Link, Route, Routes } from 'react-router-dom';
@@ -10,20 +10,101 @@ import { Admins } from './pages/Admins.js';
 
 const wallets = [inAppWallet({ auth: { options: ['google', 'email'] } })];
 
+/** Prominent hint shown when a connected wallet isn't whitelisted as admin. */
+function NotAuthorized({ address }: { address: string }): JSX.Element {
+  const [copied, setCopied] = useState(false);
+  const copy = (): void => {
+    void navigator.clipboard?.writeText(address).then(() => {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1500);
+    });
+  };
+  return (
+    <div
+      style={{
+        border: '1px solid #e0b400',
+        background: '#fff8e1',
+        borderRadius: 8,
+        padding: 20,
+        marginTop: 16,
+      }}
+    >
+      <h2 style={{ margin: '0 0 8px', fontSize: 18 }}>Wallet not authorized yet</h2>
+      <p style={{ margin: '0 0 12px' }}>
+        You signed in successfully, but this wallet isn&apos;t an admin. Add the
+        address below to <code>ADMIN_WALLETS</code> on the server (or have an
+        existing admin add it under <strong>Admins</strong>), then sign in again.
+      </p>
+      <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+        <code
+          style={{
+            fontSize: 15,
+            background: '#fff',
+            border: '1px solid #ddd',
+            borderRadius: 6,
+            padding: '8px 12px',
+            wordBreak: 'break-all',
+          }}
+        >
+          {address}
+        </code>
+        <button onClick={copy} style={{ padding: '8px 12px', cursor: 'pointer' }}>
+          {copied ? 'Copied!' : 'Copy'}
+        </button>
+      </div>
+    </div>
+  );
+}
+
 export function App() {
   const account = useActiveAccount();
   const wallet = useActiveWallet();
   const { disconnect } = useDisconnect();
+  const [authed, setAuthed] = useState(false);
+  const [notAuthorized, setNotAuthorized] = useState<string | null>(null);
 
-  // When the API rejects our token (expired or de-whitelisted), drop the wallet
-  // session so the UI returns to the signed-out gate instead of looping on errors.
+  // Reconcile our auth state with any existing token on first load (e.g. a page
+  // refresh after a previous successful login).
   useEffect(() => {
+    void authConfig.isLoggedIn().then(setAuthed);
+  }, [account]);
+
+  useEffect(() => {
+    // Backend rejected a valid signature: the wallet isn't whitelisted. Show
+    // its address so the operator knows exactly what to add as admin.
+    const onNotAuthorized = (e: Event): void => {
+      const address = (e as CustomEvent<{ address: string }>).detail?.address;
+      if (address) setNotAuthorized(address);
+      setAuthed(false);
+    };
+    // Login succeeded — clear any stale "not authorized" hint and enter the app.
+    const onAuthorized = (): void => {
+      setNotAuthorized(null);
+      setAuthed(true);
+    };
+    // The API rejected our token mid-session (expired or de-whitelisted): drop
+    // the wallet session so the UI returns to the signed-out gate.
     const onUnauthorized = (): void => {
+      setAuthed(false);
       if (wallet) disconnect(wallet);
     };
+    window.addEventListener('push-admin-not-authorized', onNotAuthorized);
+    window.addEventListener('push-admin-authorized', onAuthorized);
     window.addEventListener('push-admin-unauthorized', onUnauthorized);
-    return () => window.removeEventListener('push-admin-unauthorized', onUnauthorized);
+    return () => {
+      window.removeEventListener('push-admin-not-authorized', onNotAuthorized);
+      window.removeEventListener('push-admin-authorized', onAuthorized);
+      window.removeEventListener('push-admin-unauthorized', onUnauthorized);
+    };
   }, [wallet, disconnect]);
+
+  // A disconnected wallet can't be authorized or pending — reset both.
+  useEffect(() => {
+    if (!account || !wallet) {
+      setAuthed(false);
+      setNotAuthorized(null);
+    }
+  }, [account, wallet]);
 
   const connect = (
     <ConnectButton
@@ -44,16 +125,19 @@ export function App() {
         {connect}
       </header>
 
-      {!account || !wallet ? (
-        <p>Sign in with your wallet to manage the push service. If your wallet
-          is not yet authorized, the sign-in error will show your address — add it
-          to <code>ADMIN_WALLETS</code> and restart the server.</p>
-      ) : (
+      {authed && account && wallet ? (
         <Routes>
           <Route path="/" element={<Apps />} />
           <Route path="/apps/:appId" element={<AppDetail />} />
           <Route path="/admins" element={<Admins />} />
         </Routes>
+      ) : notAuthorized ? (
+        <NotAuthorized address={notAuthorized} />
+      ) : (
+        <p>
+          Sign in with your wallet to manage the push service. If your wallet is
+          not yet authorized, you&apos;ll see the exact address to add as an admin.
+        </p>
       )}
     </div>
   );
