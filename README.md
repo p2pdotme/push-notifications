@@ -50,6 +50,112 @@ as a dev-time contract-test dependency.
 | `scripts/generate-vapid.ts` | One-off VAPID key generator                     |
 | `examples/`         | Backend send script + React hook                        |
 
+## Installing the client from GitHub Packages (private)
+
+The browser SDK **`@p2pdotme/push-client`** is published **privately** to
+GitHub Packages. Only people with read access to the
+`p2pdotme/push-notifications` repo can install it. (The server itself is
+deployed, not published — see [Quick start](#quick-start).)
+
+**1. Create a Personal Access Token** (classic) with the `read:packages` scope
+at https://github.com/settings/tokens.
+
+**2. Tell npm to use GitHub Packages for the `@p2pdotme` scope.** Add an
+`.npmrc` to the consuming app (or your `~/.npmrc`):
+
+```
+@p2pdotme:registry=https://npm.pkg.github.com
+//npm.pkg.github.com/:_authToken=${GITHUB_TOKEN}
+```
+
+Then export the token (don't commit it):
+
+```bash
+export GITHUB_TOKEN=ghp_xxxxxxxxxxxxxxxx
+```
+
+**3. Install:**
+
+```bash
+npm install @p2pdotme/push-client
+```
+
+The package ships three entry points:
+
+| Import | Use it in | What it does |
+| ------ | --------- | ------------ |
+| `@p2pdotme/push-client` | Any frontend | Core `PushClient` (subscribe/unsubscribe lifecycle) |
+| `@p2pdotme/push-client/react` | React apps | `usePush` hook — the whole lifecycle as state |
+| `@p2pdotme/push-client/server` | Any backend | `PushServer` — send notifications with one call |
+
+### React (frontend)
+
+`react` is an optional peer dependency — installed automatically in a React app.
+
+```tsx
+import { usePush } from '@p2pdotme/push-client/react';
+
+function NotificationToggle({ userId }: { userId?: string }) {
+  const push = usePush({
+    serverUrl: 'https://push.p2p.me',
+    appId: 'user-app',
+    serviceWorkerUrl: '/push-sw.js',
+    userId,
+  });
+
+  if (!push.supported) return <p>Not supported here.</p>;
+  return (
+    <button disabled={push.loading} onClick={push.subscribed ? push.unsubscribe : push.subscribe}>
+      {push.subscribed ? 'Disable' : 'Enable'} notifications
+    </button>
+  );
+}
+```
+
+`usePush` returns `{ supported, permission, subscribed, loading, error, subscribe, unsubscribe }`.
+
+### Backend (sending)
+
+Works in Node, Bun, Deno, and edge runtimes — anything with global `fetch`.
+Keep the API key server-side only.
+
+```ts
+import { PushServer } from '@p2pdotme/push-client/server';
+
+const push = new PushServer({
+  serverUrl: process.env.PUSH_URL!,
+  apiKey: process.env.PUSH_API_KEY!, // app key, server-side only
+  appId: 'user-app',
+});
+
+await push.sendToUser('alice', { title: 'Payment received', body: 'You got 25 USDC.' });
+await push.sendToUsers(['alice', 'bob'], { title: 'Maintenance tonight' });
+await push.broadcast({ title: 'New feature shipped!' }, { urgency: 'low' });
+```
+
+Each call resolves to `{ sent, failed, expired, results }`.
+
+### Publishing a new version of the client
+
+Publishing is automated by `.github/workflows/publish.yml` — bump the version
+in `client/package.json` and cut a GitHub Release (or run the workflow manually
+from the Actions tab):
+
+```bash
+cd client
+npm version patch   # or minor / major — creates a commit + tag
+git push --follow-tags
+# then create a Release for that tag on GitHub → the workflow publishes it
+```
+
+To publish manually from your machine instead:
+
+```bash
+cd client
+npm run build
+npm publish   # needs an .npmrc token with write:packages
+```
+
 ## Quick start
 
 ```bash
