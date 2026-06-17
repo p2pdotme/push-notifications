@@ -21,6 +21,9 @@ export const authConfig = {
   },
 
   getLoginPayload: async (params: { address: string; chainId?: number }) => {
+    // A fresh sign-in attempt has started — clear any stale "not authorized"
+    // banner so it doesn't linger if this attempt succeeds.
+    window.dispatchEvent(new Event('push-admin-login-start'));
     const res = await fetch(`${API_BASE_URL}/auth/payload?address=${params.address}`);
     if (!res.ok) throw new Error('Failed to get login payload');
     return res.json();

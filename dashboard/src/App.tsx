@@ -70,12 +70,17 @@ export function App() {
   }, [account]);
 
   useEffect(() => {
-    // Backend rejected a valid signature: the wallet isn't whitelisted. Show
-    // its address so the operator knows exactly what to add as admin.
+    // A fresh sign-in attempt started — drop any stale "not authorized" banner.
+    const onLoginStart = (): void => setNotAuthorized(null);
+    // Backend rejected a valid signature: the wallet isn't whitelisted. Show its
+    // address so the operator knows what to add as admin, and disconnect to
+    // dismiss thirdweb's own "Signing In" modal instead of leaving the user on
+    // an error dialog.
     const onNotAuthorized = (e: Event): void => {
       const address = (e as CustomEvent<{ address: string }>).detail?.address;
       if (address) setNotAuthorized(address);
       setAuthed(false);
+      if (wallet) disconnect(wallet);
     };
     // Login succeeded — clear any stale "not authorized" hint and enter the app.
     const onAuthorized = (): void => {
@@ -88,22 +93,23 @@ export function App() {
       setAuthed(false);
       if (wallet) disconnect(wallet);
     };
+    window.addEventListener('push-admin-login-start', onLoginStart);
     window.addEventListener('push-admin-not-authorized', onNotAuthorized);
     window.addEventListener('push-admin-authorized', onAuthorized);
     window.addEventListener('push-admin-unauthorized', onUnauthorized);
     return () => {
+      window.removeEventListener('push-admin-login-start', onLoginStart);
       window.removeEventListener('push-admin-not-authorized', onNotAuthorized);
       window.removeEventListener('push-admin-authorized', onAuthorized);
       window.removeEventListener('push-admin-unauthorized', onUnauthorized);
     };
   }, [wallet, disconnect]);
 
-  // A disconnected wallet can't be authorized or pending — reset both.
+  // A disconnected wallet can't be authed. We deliberately keep `notAuthorized`
+  // set here so the bootstrap banner survives the disconnect above; it's cleared
+  // when the next sign-in attempt starts (push-admin-login-start) or succeeds.
   useEffect(() => {
-    if (!account || !wallet) {
-      setAuthed(false);
-      setNotAuthorized(null);
-    }
+    if (!account || !wallet) setAuthed(false);
   }, [account, wallet]);
 
   const connect = (
