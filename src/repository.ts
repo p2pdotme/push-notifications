@@ -183,10 +183,12 @@ export class Repository {
       );
       return (rows as SubscriptionRow[]).map(toRecord);
     }
-    // IS NOT DISTINCT FROM is the null-safe equality SQLite expressed as `IS ?`.
+    // Null-safe equality: match rows where user_id equals $2, treating NULL = NULL.
     const { rows } = await this.db.query(
-      'SELECT * FROM subscriptions WHERE app_id = $1 AND disabled = 0 AND user_id IS NOT DISTINCT FROM $2',
-      [appId, userId],
+      userId == null
+        ? 'SELECT * FROM subscriptions WHERE app_id = $1 AND disabled = 0 AND user_id IS NULL'
+        : 'SELECT * FROM subscriptions WHERE app_id = $1 AND disabled = 0 AND user_id = $2',
+      userId == null ? [appId] : [appId, userId],
     );
     return (rows as SubscriptionRow[]).map(toRecord);
   }
