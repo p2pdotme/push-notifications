@@ -4,24 +4,22 @@ import type { Repository } from './repository.js';
 /**
  * One-time migration of the legacy env config into the database. Runs only when
  * no apps exist yet, so the DB becomes the source of truth after first boot.
- * The legacy global CORS list is best-effort attached to every imported app;
- * admins refine it afterward. The `*` wildcard is skipped (per-app origins are
- * explicit allow-list entries, not wildcards).
+ * The `*` wildcard is skipped (per-app origins are explicit allow-list entries).
  */
-export function seedFromEnv(
+export async function seedFromEnv(
   repo: Repository,
   env: { appKeys: Record<string, string>; corsOrigins: string[] },
-): void {
-  if (repo.listApps().length > 0) return;
+): Promise<void> {
+  if ((await repo.listApps()).length > 0) return;
 
   const origins = env.corsOrigins.filter((o) => o !== '*');
 
   // All-or-nothing: a crash mid-seed must not leave a partial state that the
   // `listApps().length > 0` guard would then refuse to re-seed.
-  repo.transaction(() => {
+  await repo.transaction(async (tx) => {
     for (const [appId, secret] of Object.entries(env.appKeys)) {
-      repo.createApp({ appId, name: appId });
-      repo.createApiKey({
+      await tx.createApp({ appId, name: appId });
+      await tx.createApiKey({
         appId,
         keyHash: hashApiKey(secret),
         keyPrefix: secret.slice(0, 10),
@@ -29,7 +27,7 @@ export function seedFromEnv(
         createdBy: null,
       });
       for (const origin of origins) {
-        repo.addCorsOrigin({ appId, origin });
+        await tx.addCorsOrigin({ appId, origin });
       }
     }
   });

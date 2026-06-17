@@ -1,4 +1,4 @@
-import type Database from 'better-sqlite3';
+import type { Queryable } from './db.js';
 import type {
   AdminRecord,
   ApiKeyRecord,
@@ -101,96 +101,117 @@ function toAdminRecord(row: AdminRow): AdminRecord {
 }
 
 /**
- * Data access for subscriptions and delivery logs. All persistence lives here
- * so the HTTP and push layers stay storage-agnostic.
+ * Rewrites `@name` placeholders into positional `$1..$n` and collects the values
+ * in order, so queries stay readable while satisfying node-postgres (which has
+ * no native named parameters).
+ */
+function sql(text: string, params: Record<string, unknown> = {}): { text: string; values: unknown[] } {
+  const values: unknown[] = [];
+  const out = text.replace(/@(\w+)/g, (_m, name: string) => {
+    if (!(name in params)) throw new Error(`Missing SQL param: ${name}`);
+    values.push(params[name]);
+    return `$${values.length}`;
+  });
+  return { text: out, values };
+}
+
+/**
+ * Data access for subscriptions, delivery logs, and the admin plane. All
+ * persistence lives here so the HTTP and push layers stay storage-agnostic.
  */
 export class Repository {
-  constructor(private readonly db: Database.Database) {}
+  constructor(private readonly db: Queryable) {}
 
-  /** Run `fn` inside a single synchronous SQLite transaction (all-or-nothing). */
-  transaction<T>(fn: () => T): T {
-    return this.db.transaction(fn)();
+  /** Run `fn` inside a single Postgres transaction on a dedicated client. */
+  async transaction<T>(fn: (tx: Repository) => Promise<T>): Promise<T> {
+    // db is a Pool at the top level; .connect() checks out one client so every
+    // call inside the callback shares the same BEGIN/COMMIT scope.
+    if (typeof (this.db as { connect?: unknown }).connect !== 'function') {
+      throw new Error('transaction() must be called on a Pool-backed Repository, not inside another transaction');
+    }
+    const pool = this.db as unknown as import('pg').Pool;
+    const client = await pool.connect();
+    try {
+      await client.query('BEGIN');
+      const result = await fn(new Repository(client));
+      await client.query('COMMIT');
+      return result;
+    } catch (err) {
+      await client.query('ROLLBACK');
+      throw err;
+    } finally {
+      client.release();
+    }
   }
 
-  /**
-   * Insert a subscription, or refresh it if the endpoint already exists. The
-   * endpoint is the stable unique identifier of a browser push channel, so an
-   * upsert keeps re-subscriptions (and re-enables previously dead ones) clean.
-   */
-  upsertSubscription(input: {
+  async upsertSubscription(input: {
     appId: string;
     userId: string | null;
     subscription: PushSubscriptionJSON;
     userAgent: string | null;
-  }): SubscriptionRecord {
+  }): Promise<SubscriptionRecord> {
     const { appId, userId, subscription, userAgent } = input;
-    const row = this.db
-      .prepare(
-        `INSERT INTO subscriptions (app_id, user_id, endpoint, p256dh, auth, user_agent)
-         VALUES (@appId, @userId, @endpoint, @p256dh, @auth, @userAgent)
-         ON CONFLICT(endpoint) DO UPDATE SET
-           app_id        = excluded.app_id,
-           user_id       = excluded.user_id,
-           p256dh        = excluded.p256dh,
-           auth          = excluded.auth,
-           user_agent    = excluded.user_agent,
-           failure_count = 0,
-           disabled      = 0
-         RETURNING *`,
-      )
-      .get({
-        appId,
-        userId,
-        endpoint: subscription.endpoint,
-        p256dh: subscription.keys.p256dh,
-        auth: subscription.keys.auth,
-        userAgent,
-      }) as SubscriptionRow;
-    return toRecord(row);
+    const q = sql(
+      `INSERT INTO subscriptions (app_id, user_id, endpoint, p256dh, auth, user_agent)
+       VALUES (@appId, @userId, @endpoint, @p256dh, @auth, @userAgent)
+       ON CONFLICT(endpoint) DO UPDATE SET
+         app_id        = excluded.app_id,
+         user_id       = excluded.user_id,
+         p256dh        = excluded.p256dh,
+         auth          = excluded.auth,
+         user_agent    = excluded.user_agent,
+         failure_count = 0,
+         disabled      = 0
+       RETURNING *`,
+      { appId, userId, endpoint: subscription.endpoint, p256dh: subscription.keys.p256dh, auth: subscription.keys.auth, userAgent },
+    );
+    const { rows } = await this.db.query(q.text, q.values);
+    return toRecord(rows[0] as SubscriptionRow);
   }
 
-  deleteByEndpoint(endpoint: string): boolean {
-    const info = this.db
-      .prepare('DELETE FROM subscriptions WHERE endpoint = ?')
-      .run(endpoint);
-    return info.changes > 0;
+  async deleteByEndpoint(endpoint: string): Promise<boolean> {
+    const res = await this.db.query('DELETE FROM subscriptions WHERE endpoint = $1', [endpoint]);
+    return (res.rowCount ?? 0) > 0;
   }
 
-  /** Active subscriptions for a target. Pass userId=null to match an entire app. */
-  findActive(appId: string, userId?: string | null): SubscriptionRecord[] {
-    const base = 'SELECT * FROM subscriptions WHERE app_id = ? AND disabled = 0';
-    const rows =
-      userId === undefined
-        ? (this.db.prepare(base).all(appId) as SubscriptionRow[])
-        : (this.db
-            .prepare(`${base} AND user_id IS ?`)
-            .all(appId, userId) as SubscriptionRow[]);
-    return rows.map(toRecord);
+  /** Active subscriptions for a target. Pass userId=null to match a user with no id; omit it to match the whole app. */
+  async findActive(appId: string, userId?: string | null): Promise<SubscriptionRecord[]> {
+    if (userId === undefined) {
+      const { rows } = await this.db.query(
+        'SELECT * FROM subscriptions WHERE app_id = $1 AND disabled = 0',
+        [appId],
+      );
+      return (rows as SubscriptionRow[]).map(toRecord);
+    }
+    // Null-safe equality: match rows where user_id equals $2, treating NULL = NULL.
+    const { rows } = await this.db.query(
+      userId == null
+        ? 'SELECT * FROM subscriptions WHERE app_id = $1 AND disabled = 0 AND user_id IS NULL'
+        : 'SELECT * FROM subscriptions WHERE app_id = $1 AND disabled = 0 AND user_id = $2',
+      userId == null ? [appId] : [appId, userId],
+    );
+    return (rows as SubscriptionRow[]).map(toRecord);
   }
 
-  markSuccess(id: number): void {
-    this.db
-      .prepare(
-        `UPDATE subscriptions
-         SET last_success_at = datetime('now'), failure_count = 0
-         WHERE id = ?`,
-      )
-      .run(id);
+  async markSuccess(id: number): Promise<void> {
+    await this.db.query(
+      `UPDATE subscriptions SET last_success_at = now(), failure_count = 0 WHERE id = $1`,
+      [id],
+    );
   }
 
   /** Records a failure; disables the subscription once maxFailures is reached. */
-  markFailure(id: number, maxFailures: number): void {
-    this.db
-      .prepare(
-        `UPDATE subscriptions
-         SET failure_count = failure_count + 1,
-             disabled = CASE WHEN failure_count + 1 >= ? THEN 1 ELSE disabled END
-         WHERE id = ?`,
-      )
-      .run(maxFailures, id);
+  async markFailure(id: number, maxFailures: number): Promise<void> {
+    await this.db.query(
+      `UPDATE subscriptions
+       SET failure_count = failure_count + 1,
+           disabled = CASE WHEN failure_count + 1 >= $1 THEN 1 ELSE disabled END
+       WHERE id = $2`,
+      [maxFailures, id],
+    );
   }
 
-  logDelivery(entry: {
+  async logDelivery(entry: {
     appId: string;
     userId: string | null;
     endpoint: string;
@@ -198,221 +219,188 @@ export class Repository {
     status: 'sent' | 'failed' | 'expired';
     statusCode: number | null;
     error: string | null;
-  }): void {
-    this.db
-      .prepare(
-        `INSERT INTO notification_logs (app_id, user_id, endpoint, title, status, status_code, error)
-         VALUES (@appId, @userId, @endpoint, @title, @status, @statusCode, @error)`,
-      )
-      .run(entry);
+  }): Promise<void> {
+    const q = sql(
+      `INSERT INTO notification_logs (app_id, user_id, endpoint, title, status, status_code, error)
+       VALUES (@appId, @userId, @endpoint, @title, @status, @statusCode, @error)`,
+      entry,
+    );
+    await this.db.query(q.text, q.values);
   }
 
-  recentLogs(appId: string, limit: number): unknown[] {
-    return this.db
-      .prepare(
-        `SELECT * FROM notification_logs
-         WHERE app_id = ?
-         ORDER BY id DESC
-         LIMIT ?`,
-      )
-      .all(appId, limit);
+  async recentLogs(appId: string, limit: number): Promise<unknown[]> {
+    const { rows } = await this.db.query(
+      `SELECT * FROM notification_logs WHERE app_id = $1 ORDER BY id DESC LIMIT $2`,
+      [appId, limit],
+    );
+    return rows;
   }
 
   /** Delete logs older than `days`. No-op (returns 0) when days <= 0. */
-  pruneOldLogs(days: number): number {
+  async pruneOldLogs(days: number): Promise<number> {
     if (days <= 0) return 0;
-    return this.db
-      .prepare(`DELETE FROM notification_logs WHERE created_at < datetime('now', ?)`)
-      .run(`-${days} days`).changes;
+    const cutoff = new Date(Date.now() - days * 86_400_000).toISOString();
+    const res = await this.db.query(
+      `DELETE FROM notification_logs WHERE created_at < $1::timestamptz`,
+      [cutoff],
+    );
+    return res.rowCount ?? 0;
   }
 
-  countSubscriptions(appId: string): { total: number; active: number } {
-    const row = this.db
-      .prepare(
-        `SELECT
-           COUNT(*) AS total,
-           SUM(CASE WHEN disabled = 0 THEN 1 ELSE 0 END) AS active
-         FROM subscriptions WHERE app_id = ?`,
-      )
-      .get(appId) as { total: number; active: number | null };
-    return { total: row.total, active: row.active ?? 0 };
+  async countSubscriptions(appId: string): Promise<{ total: number; active: number }> {
+    const { rows } = await this.db.query(
+      `SELECT COUNT(*)::int AS total,
+              COALESCE(SUM(CASE WHEN disabled = 0 THEN 1 ELSE 0 END), 0)::int AS active
+       FROM subscriptions WHERE app_id = $1`,
+      [appId],
+    );
+    return { total: rows[0].total, active: rows[0].active };
   }
 
   // --- Apps -----------------------------------------------------------------
 
-  createApp(input: { appId: string; name: string }): AppRecord {
-    const row = this.db
-      .prepare(
-        `INSERT INTO apps (app_id, name) VALUES (@appId, @name) RETURNING *`,
-      )
-      .get(input) as AppRow;
-    return toAppRecord(row);
+  async createApp(input: { appId: string; name: string }): Promise<AppRecord> {
+    const q = sql(`INSERT INTO apps (app_id, name) VALUES (@appId, @name) RETURNING *`, input);
+    const { rows } = await this.db.query(q.text, q.values);
+    return toAppRecord(rows[0] as AppRow);
   }
 
-  listApps(): AppRecord[] {
-    const rows = this.db
-      .prepare('SELECT * FROM apps ORDER BY created_at')
-      .all() as AppRow[];
-    return rows.map(toAppRecord);
+  async listApps(): Promise<AppRecord[]> {
+    const { rows } = await this.db.query('SELECT * FROM apps ORDER BY created_at');
+    return (rows as AppRow[]).map(toAppRecord);
   }
 
-  getApp(appId: string): AppRecord | null {
-    const row = this.db
-      .prepare('SELECT * FROM apps WHERE app_id = ?')
-      .get(appId) as AppRow | undefined;
-    return row ? toAppRecord(row) : null;
+  async getApp(appId: string): Promise<AppRecord | null> {
+    const { rows } = await this.db.query('SELECT * FROM apps WHERE app_id = $1', [appId]);
+    return rows[0] ? toAppRecord(rows[0] as AppRow) : null;
   }
 
-  updateApp(
-    appId: string,
-    patch: { name?: string; disabled?: boolean },
-  ): AppRecord | null {
-    const current = this.getApp(appId);
+  async updateApp(appId: string, patch: { name?: string; disabled?: boolean }): Promise<AppRecord | null> {
+    const current = await this.getApp(appId);
     if (!current) return null;
     const name = patch.name ?? current.name;
     const disabled = patch.disabled ?? current.disabled;
-    this.db
-      .prepare('UPDATE apps SET name = ?, disabled = ? WHERE app_id = ?')
-      .run(name, disabled ? 1 : 0, appId);
+    await this.db.query('UPDATE apps SET name = $1, disabled = $2 WHERE app_id = $3', [name, disabled ? 1 : 0, appId]);
     return this.getApp(appId);
   }
 
-  deleteApp(appId: string): boolean {
-    return this.db.prepare('DELETE FROM apps WHERE app_id = ?').run(appId).changes > 0;
+  async deleteApp(appId: string): Promise<boolean> {
+    const res = await this.db.query('DELETE FROM apps WHERE app_id = $1', [appId]);
+    return (res.rowCount ?? 0) > 0;
   }
 
   // --- API keys -------------------------------------------------------------
 
-  createApiKey(input: {
+  async createApiKey(input: {
     appId: string;
     keyHash: string;
     keyPrefix: string;
     label: string | null;
     createdBy: string | null;
-  }): ApiKeyRecord {
-    const row = this.db
-      .prepare(
-        `INSERT INTO api_keys (app_id, key_hash, key_prefix, label, created_by)
-         VALUES (@appId, @keyHash, @keyPrefix, @label, @createdBy)
-         RETURNING id, app_id, key_prefix, label, created_by, created_at, last_used_at, revoked_at`,
-      )
-      .get(input) as ApiKeyRow;
-    return toApiKeyRecord(row);
-  }
-
-  listApiKeys(appId: string): ApiKeyRecord[] {
-    const rows = this.db
-      .prepare(
-        `SELECT id, app_id, key_prefix, label, created_by, created_at, last_used_at, revoked_at
-         FROM api_keys WHERE app_id = ? ORDER BY created_at DESC`,
-      )
-      .all(appId) as ApiKeyRow[];
-    return rows.map(toApiKeyRecord);
-  }
-
-  /**
-   * Active key for a hash: must be non-revoked AND belong to an enabled app.
-   * Disabling an app therefore immediately stops its keys from authenticating.
-   * Null if none.
-   */
-  findActiveApiKeyByHash(keyHash: string): ApiKeyRecord | null {
-    const row = this.db
-      .prepare(
-        `SELECT k.id, k.app_id, k.key_prefix, k.label, k.created_by, k.created_at, k.last_used_at, k.revoked_at
-         FROM api_keys k JOIN apps a ON a.app_id = k.app_id
-         WHERE k.key_hash = ? AND k.revoked_at IS NULL AND a.disabled = 0`,
-      )
-      .get(keyHash) as ApiKeyRow | undefined;
-    return row ? toApiKeyRecord(row) : null;
-  }
-
-  revokeApiKey(id: number): boolean {
-    return (
-      this.db
-        .prepare("UPDATE api_keys SET revoked_at = datetime('now') WHERE id = ? AND revoked_at IS NULL")
-        .run(id).changes > 0
+  }): Promise<ApiKeyRecord> {
+    const q = sql(
+      `INSERT INTO api_keys (app_id, key_hash, key_prefix, label, created_by)
+       VALUES (@appId, @keyHash, @keyPrefix, @label, @createdBy)
+       RETURNING id, app_id, key_prefix, label, created_by, created_at, last_used_at, revoked_at`,
+      input,
     );
+    const { rows } = await this.db.query(q.text, q.values);
+    return toApiKeyRecord(rows[0] as ApiKeyRow);
   }
 
-  touchApiKey(id: number): void {
-    this.db
-      .prepare("UPDATE api_keys SET last_used_at = datetime('now') WHERE id = ?")
-      .run(id);
+  async listApiKeys(appId: string): Promise<ApiKeyRecord[]> {
+    const { rows } = await this.db.query(
+      `SELECT id, app_id, key_prefix, label, created_by, created_at, last_used_at, revoked_at
+       FROM api_keys WHERE app_id = $1 ORDER BY created_at DESC`,
+      [appId],
+    );
+    return (rows as ApiKeyRow[]).map(toApiKeyRecord);
+  }
+
+  async findActiveApiKeyByHash(keyHash: string): Promise<ApiKeyRecord | null> {
+    const { rows } = await this.db.query(
+      `SELECT k.id, k.app_id, k.key_prefix, k.label, k.created_by, k.created_at, k.last_used_at, k.revoked_at
+       FROM api_keys k JOIN apps a ON a.app_id = k.app_id
+       WHERE k.key_hash = $1 AND k.revoked_at IS NULL AND a.disabled = 0`,
+      [keyHash],
+    );
+    return rows[0] ? toApiKeyRecord(rows[0] as ApiKeyRow) : null;
+  }
+
+  async revokeApiKey(id: number): Promise<boolean> {
+    const res = await this.db.query(
+      `UPDATE api_keys SET revoked_at = now() WHERE id = $1 AND revoked_at IS NULL`,
+      [id],
+    );
+    return (res.rowCount ?? 0) > 0;
+  }
+
+  async touchApiKey(id: number): Promise<void> {
+    await this.db.query(`UPDATE api_keys SET last_used_at = now() WHERE id = $1`, [id]);
   }
 
   // --- CORS origins ---------------------------------------------------------
 
-  addCorsOrigin(input: { appId: string; origin: string }): CorsOriginRecord {
-    const row = this.db
-      .prepare(
-        `INSERT INTO cors_origins (app_id, origin) VALUES (@appId, @origin)
-         -- Upsert is idempotent (origin unchanged); the no-op UPDATE only exists
-         -- so RETURNING yields the existing row when the origin is already present.
-         ON CONFLICT(app_id, origin) DO UPDATE SET origin = excluded.origin
-         RETURNING *`,
-      )
-      .get(input) as CorsOriginRow;
-    return toCorsOriginRecord(row);
+  async addCorsOrigin(input: { appId: string; origin: string }): Promise<CorsOriginRecord> {
+    const q = sql(
+      `INSERT INTO cors_origins (app_id, origin) VALUES (@appId, @origin)
+       ON CONFLICT(app_id, origin) DO UPDATE SET origin = excluded.origin
+       RETURNING *`,
+      input,
+    );
+    const { rows } = await this.db.query(q.text, q.values);
+    return toCorsOriginRecord(rows[0] as CorsOriginRow);
   }
 
-  listCorsOrigins(appId: string): CorsOriginRecord[] {
-    const rows = this.db
-      .prepare('SELECT * FROM cors_origins WHERE app_id = ? ORDER BY origin')
-      .all(appId) as CorsOriginRow[];
-    return rows.map(toCorsOriginRecord);
+  async listCorsOrigins(appId: string): Promise<CorsOriginRecord[]> {
+    const { rows } = await this.db.query('SELECT * FROM cors_origins WHERE app_id = $1 ORDER BY origin', [appId]);
+    return (rows as CorsOriginRow[]).map(toCorsOriginRecord);
   }
 
-  deleteCorsOrigin(id: number): boolean {
-    return this.db.prepare('DELETE FROM cors_origins WHERE id = ?').run(id).changes > 0;
+  async deleteCorsOrigin(id: number): Promise<boolean> {
+    const res = await this.db.query('DELETE FROM cors_origins WHERE id = $1', [id]);
+    return (res.rowCount ?? 0) > 0;
   }
 
-  isOriginAllowedForApp(appId: string, origin: string): boolean {
-    const row = this.db
-      .prepare('SELECT 1 FROM cors_origins WHERE app_id = ? AND origin = ? LIMIT 1')
-      .get(appId, origin);
-    return row !== undefined;
+  async isOriginAllowedForApp(appId: string, origin: string): Promise<boolean> {
+    const { rows } = await this.db.query(
+      'SELECT 1 FROM cors_origins WHERE app_id = $1 AND origin = $2 LIMIT 1',
+      [appId, origin],
+    );
+    return rows.length > 0;
   }
 
-  isOriginAllowedForAny(origin: string): boolean {
-    const row = this.db
-      .prepare('SELECT 1 FROM cors_origins WHERE origin = ? LIMIT 1')
-      .get(origin);
-    return row !== undefined;
+  async isOriginAllowedForAny(origin: string): Promise<boolean> {
+    const { rows } = await this.db.query('SELECT 1 FROM cors_origins WHERE origin = $1 LIMIT 1', [origin]);
+    return rows.length > 0;
   }
 
   // --- Admins ---------------------------------------------------------------
 
-  addAdmin(input: { address: string; label: string | null; addedBy: string | null }): AdminRecord {
-    const row = this.db
-      .prepare(
-        `INSERT INTO admins (address, label, added_by)
-         VALUES (@address, @label, @addedBy)
-         -- Re-adding an existing admin refreshes the label but keeps the
-         -- original added_by (audit trail of who first granted access).
-         ON CONFLICT(address) DO UPDATE SET label = excluded.label
-         RETURNING *`,
-      )
-      .get({ ...input, address: input.address.toLowerCase() }) as AdminRow;
-    return toAdminRecord(row);
-  }
-
-  listAdmins(): AdminRecord[] {
-    const rows = this.db
-      .prepare('SELECT * FROM admins ORDER BY created_at')
-      .all() as AdminRow[];
-    return rows.map(toAdminRecord);
-  }
-
-  removeAdmin(address: string): boolean {
-    return (
-      this.db.prepare('DELETE FROM admins WHERE address = ?').run(address.toLowerCase()).changes > 0
+  async addAdmin(input: { address: string; label: string | null; addedBy: string | null }): Promise<AdminRecord> {
+    const q = sql(
+      `INSERT INTO admins (address, label, added_by)
+       VALUES (@address, @label, @addedBy)
+       ON CONFLICT(address) DO UPDATE SET label = excluded.label
+       RETURNING *`,
+      { ...input, address: input.address.toLowerCase() },
     );
+    const { rows } = await this.db.query(q.text, q.values);
+    return toAdminRecord(rows[0] as AdminRow);
   }
 
-  isDbAdmin(address: string): boolean {
-    const row = this.db
-      .prepare('SELECT 1 FROM admins WHERE address = ? LIMIT 1')
-      .get(address.toLowerCase());
-    return row !== undefined;
+  async listAdmins(): Promise<AdminRecord[]> {
+    const { rows } = await this.db.query('SELECT * FROM admins ORDER BY created_at');
+    return (rows as AdminRow[]).map(toAdminRecord);
+  }
+
+  async removeAdmin(address: string): Promise<boolean> {
+    const res = await this.db.query('DELETE FROM admins WHERE address = $1', [address.toLowerCase()]);
+    return (res.rowCount ?? 0) > 0;
+  }
+
+  async isDbAdmin(address: string): Promise<boolean> {
+    const { rows } = await this.db.query('SELECT 1 FROM admins WHERE address = $1 LIMIT 1', [address.toLowerCase()]);
+    return rows.length > 0;
   }
 }

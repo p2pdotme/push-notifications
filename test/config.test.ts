@@ -17,6 +17,7 @@ function baseEnv(): void {
   process.env.VAPID_PUBLIC_KEY = 'pub';
   process.env.VAPID_PRIVATE_KEY = 'priv';
   process.env.ADMIN_API_KEY = 'admin';
+  process.env.DATABASE_URL = 'postgresql://localhost/test';
   delete process.env.THIRDWEB_SECRET_KEY;
   delete process.env.AUTH_DOMAIN;
   delete process.env.AUTH_JWT_SECRET;
@@ -72,6 +73,14 @@ describe('loadConfig auth env', () => {
     baseEnv();
     process.env.AUTH_DOMAIN = 'd';
     // no AUTH_JWT_SECRET / THIRDWEB_AUTH_PRIVATE_KEY
+    assert.throws(() => loadConfig());
+  });
+
+  it('throws when DATABASE_URL is missing', () => {
+    baseEnv();
+    process.env.AUTH_DOMAIN = 'd';
+    process.env.AUTH_JWT_SECRET = 's';
+    delete process.env.DATABASE_URL;
     assert.throws(() => loadConfig());
   });
 });

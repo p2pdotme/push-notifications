@@ -1,28 +1,14 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdirSync, rmSync } from 'node:fs';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
-import { openDatabase } from '../src/db.js';
+import { createTestPool } from './helpers/test-db.js';
 
-describe('openDatabase pragmas', () => {
-  it('applies low-memory pragmas', () => {
-    const db = openDatabase(':memory:');
-    // negative cache_size = KiB of memory; we set a small bounded cache.
-    assert.ok((db.pragma('cache_size', { simple: true }) as number) < 0);
-    db.close();
-  });
-
-  it('sets mmap_size = 0 on a file database', () => {
-    const dir = join(tmpdir(), `push-test-${Date.now()}`);
-    mkdirSync(dir, { recursive: true });
-    const dbPath = join(dir, 'test.db');
-    try {
-      const db = openDatabase(dbPath);
-      assert.equal(db.pragma('mmap_size', { simple: true }), 0);
-      db.close();
-    } finally {
-      rmSync(dir, { recursive: true, force: true });
+describe('schema', () => {
+  it('creates every admin-plane and core table', async () => {
+    const pool = await createTestPool();
+    for (const t of ['subscriptions', 'notification_logs', 'apps', 'api_keys', 'cors_origins', 'admins']) {
+      // A SELECT that returns no rows still throws if the table is missing.
+      await assert.doesNotReject(pool.query(`SELECT 1 FROM ${t} LIMIT 0`), `table ${t} should exist`);
     }
+    await pool.end();
   });
 });

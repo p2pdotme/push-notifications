@@ -26,19 +26,23 @@ export interface AppContext {
 
 /** Browser CORS for subscribe/public endpoints: reflect any registered origin. */
 function browserCors(repo: Repository) {
-  return (req: Request, res: Response, next: NextFunction): void => {
-    const origin = req.header('origin');
-    if (origin && repo.isOriginAllowedForAny(origin)) {
-      res.setHeader('Access-Control-Allow-Origin', origin);
-      res.setHeader('Vary', 'Origin');
+  return async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+    try {
+      const origin = req.header('origin');
+      if (origin && (await repo.isOriginAllowedForAny(origin))) {
+        res.setHeader('Access-Control-Allow-Origin', origin);
+        res.setHeader('Vary', 'Origin');
+      }
+      res.setHeader('Access-Control-Allow-Methods', 'GET,POST,DELETE,OPTIONS');
+      res.setHeader('Access-Control-Allow-Headers', 'Content-Type,x-api-key');
+      if (req.method === 'OPTIONS') {
+        res.sendStatus(204);
+        return;
+      }
+      next();
+    } catch (err) {
+      next(err);
     }
-    res.setHeader('Access-Control-Allow-Methods', 'GET,POST,DELETE,OPTIONS');
-    res.setHeader('Access-Control-Allow-Headers', 'Content-Type,x-api-key');
-    if (req.method === 'OPTIONS') {
-      res.sendStatus(204);
-      return;
-    }
-    next();
   };
 }
 

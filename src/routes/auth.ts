@@ -37,7 +37,7 @@ export function authRouter(
       res.status(401).json({ error: 'Invalid signature' });
       return;
     }
-    if (!isAdminAddress(result.address, config, repo)) {
+    if (!(await isAdminAddress(result.address, config, repo))) {
       res.status(403).json({ error: 'Wallet not authorized', address: result.address });
       return;
     }
@@ -56,7 +56,7 @@ export function authRouter(
       res.status(401).json({ error: 'Invalid token' });
       return;
     }
-    res.json({ address: verified.address, isAdmin: isAdminAddress(verified.address, config, repo) });
+    res.json({ address: verified.address, isAdmin: await isAdminAddress(verified.address, config, repo) });
   }));
 
   return router;

@@ -74,7 +74,7 @@ export interface Config {
     privateKey: string;
     subject: string;
   };
-  databasePath: string;
+  databaseUrl: string;
   adminApiKey: string;
   appKeys: Record<string, string>;
   maxFailures: number;
@@ -97,7 +97,7 @@ export function loadConfig(): Config {
       privateKey: required('VAPID_PRIVATE_KEY'),
       subject: optional('VAPID_SUBJECT', 'mailto:dev@p2p.me'),
     },
-    databasePath: optional('DATABASE_PATH', './data/push.sqlite'),
+    databaseUrl: required('DATABASE_URL'),
     adminApiKey: required('ADMIN_API_KEY'),
     appKeys: parseAppKeys(optional('APP_KEYS', '')),
     maxFailures: Number(optional('MAX_FAILURES', '5')),
