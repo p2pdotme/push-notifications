@@ -74,8 +74,8 @@ export class PushSender {
         JSON.stringify(payload),
         { TTL: options.ttl ?? 60 * 60 * 24, urgency: options.urgency ?? 'normal' },
       );
-      this.repo.markSuccess(sub.id);
-      this.repo.logDelivery({
+      await this.repo.markSuccess(sub.id);
+      await this.repo.logDelivery({
         appId: sub.appId,
         userId: sub.userId,
         endpoint: sub.endpoint,
@@ -86,27 +86,27 @@ export class PushSender {
       });
       return { endpoint: sub.endpoint, success: true, statusCode: res.statusCode };
     } catch (err) {
-      return this.handleError(sub, payload, err);
+      return await this.handleError(sub, payload, err);
     }
   }
 
-  private handleError(
+  private async handleError(
     sub: SubscriptionRecord,
     payload: NotificationPayload,
     err: unknown,
-  ): SendResult {
+  ): Promise<SendResult> {
     const statusCode = err instanceof WebPushError ? err.statusCode : undefined;
     // 404 (Not Found) / 410 (Gone) mean the subscription is permanently dead.
     const expired = statusCode === 404 || statusCode === 410;
 
     if (expired) {
-      this.repo.deleteByEndpoint(sub.endpoint);
+      await this.repo.deleteByEndpoint(sub.endpoint);
     } else {
-      this.repo.markFailure(sub.id, this.config.maxFailures);
+      await this.repo.markFailure(sub.id, this.config.maxFailures);
     }
 
     const message = err instanceof Error ? err.message : String(err);
-    this.repo.logDelivery({
+    await this.repo.logDelivery({
       appId: sub.appId,
       userId: sub.userId,
       endpoint: sub.endpoint,
