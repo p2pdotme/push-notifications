@@ -1,0 +1,25 @@
+# Netlify deploy config for the push admin dashboard (Vite SPA).
+#
+# In the Netlify UI, either point the site at this repo with **base directory
+# = dashboard**, or leave the base blank and Netlify will read this file from
+# the repo root once you set the build to use it. The settings below assume the
+# site's base directory is `dashboard/`.
+#
+# Required build-time environment variables (set in Netlify → Site settings →
+# Environment variables — Vite inlines anything prefixed VITE_ at build time):
+#   VITE_API_BASE_URL    = https://push.p2p.me
+#   VITE_THIRDWEB_CLIENT_ID = <public thirdweb client id>
+
+[build]
+  # Relative to the repo root. The Vite app lives in this subdirectory.
+  base = "dashboard"
+  command = "npm run build"
+  # `publish` is resolved relative to `base`, so this is dashboard/dist.
+  publish = "dist"
+
+# Single-page app: every route is served by index.html so client-side
+# routing (BrowserRouter) works on hard navigations and refreshes.
+[[redirects]]
+  from = "/*"
+  to = "/index.html"
+  status = 200
