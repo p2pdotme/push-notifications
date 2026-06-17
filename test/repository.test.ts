@@ -112,7 +112,9 @@ describe('pruneOldLogs', () => {
   });
 
   it('is a no-op when days <= 0', async () => {
-    const repo = new Repository(await createTestPool());
+    const pool = await createTestPool();
+    const repo = new Repository(pool);
     assert.equal(await repo.pruneOldLogs(0), 0);
+    await pool.end();
   });
 });

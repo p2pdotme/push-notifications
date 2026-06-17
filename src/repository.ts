@@ -126,6 +126,9 @@ export class Repository {
   async transaction<T>(fn: (tx: Repository) => Promise<T>): Promise<T> {
     // db is a Pool at the top level; .connect() checks out one client so every
     // call inside the callback shares the same BEGIN/COMMIT scope.
+    if (typeof (this.db as { connect?: unknown }).connect !== 'function') {
+      throw new Error('transaction() must be called on a Pool-backed Repository, not inside another transaction');
+    }
     const pool = this.db as unknown as import('pg').Pool;
     const client = await pool.connect();
     try {
