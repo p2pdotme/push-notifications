@@ -23,13 +23,16 @@ const config: Config = {
   host: '127.0.0.1',
   corsOrigins: ['*'],
   vapid: { publicKey: vapid.publicKey, privateKey: vapid.privateKey, subject: 'mailto:test@p2p.me' },
-  databasePath: ':memory:',
+  databaseUrl: 'postgresql://localhost/test',
   adminApiKey: 'admin-key',
   appKeys: { 'user-app': 'user-key', 'merchant-app': 'merchant-key' },
   maxFailures: 5,
   adminWallets: [],
   dashboardOrigin: 'http://localhost:5173',
-  thirdweb: { secretKey: 'x', authPrivateKey: 'x', authDomain: 'localhost' },
+  authDomain: 'localhost',
+  jwtSecret: 'x',
+  sendConcurrency: 25,
+  logRetentionDays: 0,
 };
 
 let server: Server;
