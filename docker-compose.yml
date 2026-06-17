@@ -30,7 +30,7 @@ services:
       VAPID_PRIVATE_KEY: ${VAPID_PRIVATE_KEY}
       VAPID_SUBJECT: ${VAPID_SUBJECT:-mailto:dev@p2p.me}
       ADMIN_API_KEY: ${ADMIN_API_KEY}
-      APP_KEYS: ${APP_KEYS}
+      APP_KEYS: ${APP_KEYS:-}
       CORS_ORIGINS: ${CORS_ORIGINS:-*}
       AUTH_DOMAIN: ${AUTH_DOMAIN:-localhost}
       AUTH_JWT_SECRET: ${AUTH_JWT_SECRET}

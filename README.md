@@ -95,6 +95,7 @@ See [`.env.example`](./.env.example). Key variables:
 | `AUTH_JWT_SECRET`     | **Secret.** 32+ random bytes used to sign HS256 admin session JWTs. Replaces `THIRDWEB_AUTH_PRIVATE_KEY` (still accepted as fallback). |
 | `ADMIN_WALLETS`       | Comma-separated bootstrap admin wallet addresses.                              |
 | `DASHBOARD_ORIGIN`    | Origin of the dashboard SPA, allowed on `/auth` + `/admin`.                   |
+| `MAX_FAILURES`        | Consecutive delivery failures before a subscription is auto-disabled (default: `5`). |
 | `SEND_CONCURRENCY`    | Max push sends in flight at once (default: `25`).                              |
 | `LOG_RETENTION_DAYS`  | Delete delivery logs older than N days (`0` = keep forever, default).          |
 | `NODE_OPTIONS`        | Set in the Docker runtime stage to cap V8 heap: `--max-old-space-size=128 --max-semi-space-size=2`. Override for larger hosts. |

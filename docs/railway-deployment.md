@@ -7,7 +7,10 @@
 2. **Add Postgres**: in the Railway project, "New → Database → PostgreSQL".
 3. **Wire the connection string**: on the push service, set
    `DATABASE_URL=${{Postgres.DATABASE_URL}}` (Railway reference variable). The
-   service runs its own schema migration on boot.
+   service runs its own schema migration on boot. Use the **internal** reference
+   `${{Postgres.DATABASE_URL}}` — no TLS config needed. If you must use the
+   **public** Postgres URL instead, append `?sslmode=require` to it (the app
+   uses `pg`'s default SSL handling).
 4. **Set the remaining variables** (Service → Variables):
    - `VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY`, `VAPID_SUBJECT`
    - `ADMIN_API_KEY`
@@ -16,6 +19,7 @@
    - `ADMIN_WALLETS` (bootstrap admin wallet address)
    - `DASHBOARD_ORIGIN=https://<your-netlify-domain>`
    - `PORT` is provided by Railway automatically; the app reads it.
+   - `APP_KEYS` (optional) — JSON `{"<appId>":"<secret>"}` to seed per-app API keys on first boot; afterward the dashboard manages keys.
 5. **Health check**: set the Railway healthcheck path to `/health`.
 6. **Custom domain**: map `push.p2p.me` to the service. Ensure `AUTH_DOMAIN`
    matches the host browsers see, or SIWE login will fail.
