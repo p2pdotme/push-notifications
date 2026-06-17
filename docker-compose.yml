@@ -1,22 +1,41 @@
 services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: push
+      POSTGRES_PASSWORD: push
+      POSTGRES_DB: push
+    volumes:
+      - push-pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U push -d push']
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
   push:
     build: .
     restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
     ports:
-      - "4000:4000"
+      - '4000:4000'
     environment:
       PORT: 4000
       HOST: 0.0.0.0
-      DATABASE_PATH: /app/data/push.sqlite
-      # Provide these via an .env file or your secrets manager:
+      DATABASE_URL: postgres://push:push@postgres:5432/push
       VAPID_PUBLIC_KEY: ${VAPID_PUBLIC_KEY}
       VAPID_PRIVATE_KEY: ${VAPID_PRIVATE_KEY}
       VAPID_SUBJECT: ${VAPID_SUBJECT:-mailto:dev@p2p.me}
       ADMIN_API_KEY: ${ADMIN_API_KEY}
       APP_KEYS: ${APP_KEYS}
       CORS_ORIGINS: ${CORS_ORIGINS:-*}
-    volumes:
-      - push-data:/app/data
+      AUTH_DOMAIN: ${AUTH_DOMAIN:-localhost}
+      AUTH_JWT_SECRET: ${AUTH_JWT_SECRET}
+      ADMIN_WALLETS: ${ADMIN_WALLETS:-}
+      DASHBOARD_ORIGIN: ${DASHBOARD_ORIGIN:-http://localhost:5173}
 
 volumes:
-  push-data:
+  push-pgdata:
