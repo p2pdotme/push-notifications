@@ -20,13 +20,16 @@ function makeConfig(): Config {
     host: '127.0.0.1',
     corsOrigins: ['*'],
     vapid: { publicKey: vapid.publicKey, privateKey: vapid.privateKey, subject: 'mailto:test@p2p.me' },
-    databasePath: ':memory:',
+    databaseUrl: 'postgresql://localhost/test',
     adminApiKey: 'admin-key',
     appKeys: {},
     maxFailures: 5,
     adminWallets: [ADMIN],
     dashboardOrigin: 'http://localhost:5173',
-    thirdweb: { secretKey: 'x', authPrivateKey: 'x', authDomain: 'localhost' },
+    authDomain: 'localhost',
+    jwtSecret: 'x',
+    sendConcurrency: 25,
+    logRetentionDays: 0,
   };
 }
 
