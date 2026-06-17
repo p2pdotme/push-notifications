@@ -30,28 +30,32 @@ function safeEqual(a: string, b: string): boolean {
  * its app. Sending endpoints require this middleware; browser subscribe does not.
  */
 export function apiKeyAuth(config: Config, repo: Repository) {
-  return (req: Request, res: Response, next: NextFunction): void => {
-    const provided = req.header('x-api-key');
-    if (!provided) {
-      res.status(401).json({ error: 'Missing x-api-key header' });
-      return;
-    }
+  return async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+    try {
+      const provided = req.header('x-api-key');
+      if (!provided) {
+        res.status(401).json({ error: 'Missing x-api-key header' });
+        return;
+      }
 
-    if (safeEqual(provided, config.adminApiKey)) {
-      req.auth = { isAdmin: true, appId: null };
-      next();
-      return;
-    }
+      if (safeEqual(provided, config.adminApiKey)) {
+        req.auth = { isAdmin: true, appId: null };
+        next();
+        return;
+      }
 
-    const key = repo.findActiveApiKeyByHash(hashApiKey(provided));
-    if (key) {
-      repo.touchApiKey(key.id);
-      req.auth = { isAdmin: false, appId: key.appId };
-      next();
-      return;
-    }
+      const key = await repo.findActiveApiKeyByHash(hashApiKey(provided));
+      if (key) {
+        await repo.touchApiKey(key.id);
+        req.auth = { isAdmin: false, appId: key.appId };
+        next();
+        return;
+      }
 
-    res.status(403).json({ error: 'Invalid API key' });
+      res.status(403).json({ error: 'Invalid API key' });
+    } catch (err) {
+      next(err);
+    }
   };
 }
 
@@ -80,9 +84,9 @@ export class HttpError extends Error {
 }
 
 /** True when an address is a bootstrap (env) admin or a DB-managed admin. */
-export function isAdminAddress(address: string, config: Config, repo: Repository): boolean {
+export async function isAdminAddress(address: string, config: Config, repo: Repository): Promise<boolean> {
   const lower = address.toLowerCase();
-  return config.adminWallets.includes(lower) || repo.isDbAdmin(lower);
+  return config.adminWallets.includes(lower) || (await repo.isDbAdmin(lower));
 }
 
 /**
@@ -106,7 +110,7 @@ export function requireAdmin(config: Config, repo: Repository, authService: Auth
         res.status(401).json({ error: 'Invalid token' });
         return;
       }
-      if (!isAdminAddress(verified.address, config, repo)) {
+      if (!(await isAdminAddress(verified.address, config, repo))) {
         res.status(403).json({ error: 'Wallet not authorized' });
         return;
       }

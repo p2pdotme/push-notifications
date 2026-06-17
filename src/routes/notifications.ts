@@ -20,10 +20,10 @@ export function notificationsRouter(ctx: AppContext): Router {
     // Resolve the target set of subscriptions.
     let targets: SubscriptionRecord[];
     if (body.broadcast) {
-      targets = ctx.repo.findActive(body.appId);
+      targets = await ctx.repo.findActive(body.appId);
     } else {
       const userIds = body.userIds ?? (body.userId ? [body.userId] : []);
-      targets = userIds.flatMap((uid) => ctx.repo.findActive(body.appId, uid));
+      targets = (await Promise.all(userIds.map((uid) => ctx.repo.findActive(body.appId, uid)))).flat();
     }
 
     if (targets.length === 0) {
@@ -38,12 +38,12 @@ export function notificationsRouter(ctx: AppContext): Router {
     res.json(summary);
   }));
 
-  router.get('/logs/:appId', (req, res) => {
+  router.get('/logs/:appId', asyncHandler(async (req, res) => {
     const appId = req.params.appId as string;
     assertAppAccess(req.auth, appId);
     const limit = Math.min(Number(req.query.limit ?? 100), 500);
-    res.json(ctx.repo.recentLogs(appId, limit));
-  });
+    res.json(await ctx.repo.recentLogs(appId, limit));
+  }));
 
   return router;
 }
