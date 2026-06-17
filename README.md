@@ -74,6 +74,10 @@ Or with Docker:
 docker compose up --build
 ```
 
+For a full production walkthrough — configuration, persistence, backups,
+updates, TLS, and troubleshooting — see
+[`docs/docker-deployment.md`](./docs/docker-deployment.md).
+
 ## Configuration
 
 See [`.env.example`](./.env.example). Key variables:
