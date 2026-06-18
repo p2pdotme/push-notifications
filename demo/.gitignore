@@ -1,0 +1,7 @@
+node_modules/
+# Build artifacts (shipped to the VM, not committed).
+/server/public/
+/server/server.out.mjs
+/frontend/dist/
+# Local registry auth for the private @p2pdotme package
+.npmrc
