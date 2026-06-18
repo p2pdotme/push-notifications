@@ -48,20 +48,43 @@ function urlB64ToUint8Array(base64) {
 
 const supported = 'serviceWorker' in navigator && 'PushManager' in window && 'Notification' in window;
 
-async function enableNotifications() {
-  if (!supported) throw new Error('This browser does not support web push.');
+async function ensureServiceWorker() {
   const reg = await navigator.serviceWorker.register('/push-sw.js');
   await navigator.serviceWorker.ready;
+  return reg;
+}
 
-  const permission = await Notification.requestPermission();
-  if (permission !== 'granted') throw new Error('Notification permission denied.');
+/** Does an existing subscription's server key match the current VAPID key? */
+function keyMatches(buf, bytes) {
+  if (!buf) return false;
+  const a = new Uint8Array(buf);
+  if (a.length !== bytes.length) return false;
+  for (let i = 0; i < bytes.length; i++) if (a[i] !== bytes[i]) return false;
+  return true;
+}
 
+/**
+ * Idempotent: registers (or re-registers) this browser against the push service.
+ * If a stale subscription exists from a different app server (e.g. an earlier
+ * backend with a different VAPID key), it is dropped and recreated, so the
+ * subscription stored in push.lmao.cl always matches what the browser holds.
+ */
+async function registerPush(reg) {
   if (!CONFIG.pushBase) await loadConfig();
   const { publicKey } = await (await fetch(`${CONFIG.pushBase}/vapid-public-key`)).json();
-  const subscription = await reg.pushManager.subscribe({
-    userVisibleOnly: true,
-    applicationServerKey: urlB64ToUint8Array(publicKey),
-  });
+  const appKey = urlB64ToUint8Array(publicKey);
+
+  let subscription = await reg.pushManager.getSubscription();
+  if (subscription && !keyMatches(subscription.options.applicationServerKey, appKey)) {
+    await subscription.unsubscribe().catch(() => {});
+    subscription = null;
+  }
+  if (!subscription) {
+    subscription = await reg.pushManager.subscribe({
+      userVisibleOnly: true,
+      applicationServerKey: appKey,
+    });
+  }
 
   const res = await fetch(`${CONFIG.pushBase}/subscriptions`, {
     method: 'POST',
@@ -69,6 +92,14 @@ async function enableNotifications() {
     body: JSON.stringify({ appId: CONFIG.appId, userId: userId(), subscription }),
   });
   if (!res.ok) throw new Error('Could not register the subscription.');
+}
+
+async function enableNotifications() {
+  if (!supported) throw new Error('This browser does not support web push.');
+  const reg = await ensureServiceWorker();
+  const permission = await Notification.requestPermission();
+  if (permission !== 'granted') throw new Error('Notification permission denied.');
+  await registerPush(reg);
 }
 
 async function trigger(broadcast) {
@@ -120,7 +151,9 @@ function wireSend(button, broadcast, label) {
 wireSend(els.send, false, 'Sent');
 wireSend(els.broadcast, true, 'Broadcast');
 
-// If this browser is already subscribed (return visit), unlock the send buttons.
+// On load: if notifications were already granted, re-register against the
+// current push service (self-healing — fixes a subscription left over from an
+// earlier backend) and unlock the send buttons.
 (async () => {
   if (!supported) {
     els.enable.disabled = true;
@@ -128,11 +161,13 @@ wireSend(els.broadcast, true, 'Broadcast');
     return;
   }
   await loadConfig();
+  if (Notification.permission !== 'granted') return; // not enabled yet — first visit
   try {
-    const reg = await navigator.serviceWorker.getRegistration('/push-sw.js');
-    const existing = reg && (await reg.pushManager.getSubscription());
-    if (existing && Notification.permission === 'granted') markSubscribed();
+    const reg = await ensureServiceWorker();
+    await registerPush(reg);
+    markSubscribed();
+    setStatus('Notifications are on.', 'ok');
   } catch {
-    /* ignore — first visit */
+    /* leave the Enable button active so the user can retry */
   }
 })();
