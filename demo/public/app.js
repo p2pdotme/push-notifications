@@ -1,7 +1,19 @@
 // Vanilla push-subscribe demo. Mirrors the @p2pdotme/push-client subscribe flow
-// inline so the PWA needs no build step. Same-origin: /vapid-public-key and
-// /subscriptions are proxied to the push backend by Caddy.
-const APP_ID = 'demo-app';
+// inline so the PWA needs no build step.
+//
+// The browser subscribes DIRECTLY against the central push service
+// (CONFIG.pushBase, e.g. https://push.lmao.cl) — that service manages apps,
+// keys and the allowed-origins list. The notification trigger goes to THIS
+// app's own backend (/api/*, same origin), which holds the app key.
+let CONFIG = { pushBase: '', appId: 'demo-app' };
+
+async function loadConfig() {
+  try {
+    CONFIG = await (await fetch('/config.json')).json();
+  } catch {
+    /* keep defaults */
+  }
+}
 
 const els = {
   enable: document.getElementById('enable'),
@@ -44,16 +56,17 @@ async function enableNotifications() {
   const permission = await Notification.requestPermission();
   if (permission !== 'granted') throw new Error('Notification permission denied.');
 
-  const { publicKey } = await (await fetch('/vapid-public-key')).json();
+  if (!CONFIG.pushBase) await loadConfig();
+  const { publicKey } = await (await fetch(`${CONFIG.pushBase}/vapid-public-key`)).json();
   const subscription = await reg.pushManager.subscribe({
     userVisibleOnly: true,
     applicationServerKey: urlB64ToUint8Array(publicKey),
   });
 
-  const res = await fetch('/subscriptions', {
+  const res = await fetch(`${CONFIG.pushBase}/subscriptions`, {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ appId: APP_ID, userId: userId(), subscription }),
+    body: JSON.stringify({ appId: CONFIG.appId, userId: userId(), subscription }),
   });
   if (!res.ok) throw new Error('Could not register the subscription.');
 }
@@ -114,6 +127,7 @@ wireSend(els.broadcast, true, 'Broadcast');
     setStatus('This browser does not support web push.', 'err');
     return;
   }
+  await loadConfig();
   try {
     const reg = await navigator.serviceWorker.getRegistration('/push-sw.js');
     const existing = reg && (await reg.pushManager.getSubscription());
