@@ -1,0 +1,13 @@
+{
+  "name": "push-demo-pwa",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Self-contained demo PWA for the p2p.me self-hosted web push service.",
+  "scripts": {
+    "start": "node server.mjs"
+  },
+  "dependencies": {
+    "express": "^4.21.2"
+  }
+}
