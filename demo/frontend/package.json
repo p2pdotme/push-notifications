@@ -1,0 +1,21 @@
+{
+  "name": "push-demo-web",
+  "version": "0.2.0",
+  "private": true,
+  "type": "module",
+  "description": "Demo PWA (React + Vite) consuming @p2pdotme/push-client/react (usePush).",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "@p2pdotme/push-client": "^0.1.0",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-react": "^4.3.4",
+    "vite": "^6.0.5"
+  }
+}
