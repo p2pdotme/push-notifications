@@ -4,12 +4,13 @@ A small **React** Progressive Web App that exercises the full web-push flow
 against the **central push service** (`push.lmao.cl`): **subscribe in the
 browser → trigger a notification → receive it**.
 
-It dogfoods the published private SDK **`@p2pdotme/push-client`**:
+It dogfoods the published private SDK **`@p2pdotme/push-client`** and is split
+into two folders:
 
-- **Frontend** (`web/`) — React + Vite, uses the `usePush` hook from
+- **`frontend/`** — React + Vite PWA, uses the `usePush` hook from
   `@p2pdotme/push-client/react`. The browser subscribes **directly** against the
   push service (`pushBase`, read from `/config.json`).
-- **Backend** (`server.mjs`) — Express, uses `PushServer` from
+- **`server/`** — Express backend, uses `PushServer` from
   `@p2pdotme/push-client/server` to trigger sends with the app key (kept
   server-side). It also serves the built PWA and `/config.json`.
 
@@ -21,11 +22,11 @@ for its app id there.
 
 | Path | What it is |
 | ---- | ---------- |
-| `web/` | React + Vite PWA (`src/App.jsx` uses `usePush`) |
-| `web/public/` | `push-sw.js`, `manifest.webmanifest`, `icon.svg` (copied verbatim) |
-| `server.mjs` | Express backend: serves the PWA + `POST /api/trigger` / `POST /api/broadcast` via `PushServer` |
-| `build.sh` | Builds the React app and bundles the server (`server.out.mjs`) |
-| `Dockerfile` | Runtime image (express only; the SDK is bundled into `server.out.mjs`) |
+| `frontend/` | React + Vite PWA (`src/App.jsx` uses `usePush`) |
+| `frontend/public/` | `push-sw.js`, `manifest.webmanifest`, `icon.svg` (copied verbatim) |
+| `server/server.mjs` | Express backend: serves the PWA + `POST /api/trigger` / `POST /api/broadcast` via `PushServer` |
+| `server/Dockerfile` | Runtime image (express only; the SDK is bundled into `server.out.mjs`) |
+| `build.sh` | Builds the React app into `server/public/` and bundles the server (`server/server.out.mjs`) |
 
 ## Endpoints (backend)
 
@@ -36,7 +37,8 @@ for its app id there.
 ## Build
 
 Installing `@p2pdotme/push-client` needs a `read:packages` token for the
-`@p2pdotme` scope. Put it in `web/.npmrc` and `demo/.npmrc` (both gitignored):
+`@p2pdotme` scope. Put it in `frontend/.npmrc` and `server/.npmrc` (both
+gitignored):
 
 ```
 @p2pdotme:registry=https://npm.pkg.github.com
@@ -46,7 +48,7 @@ Installing `@p2pdotme/push-client` needs a `read:packages` token for the
 Then:
 
 ```bash
-./build.sh        # -> public/ (React PWA) + server.out.mjs (bundled backend)
+./build.sh        # -> server/public/ (React PWA) + server/server.out.mjs
 ```
 
 The token is only used at build time and is **not** baked into the image or
@@ -56,11 +58,12 @@ shipped to the server.
 
 ```bash
 # 1. Backend (after build.sh, or with the SDK installed)
+cd server
 PUSH_URL=https://push.lmao.cl PUSH_PUBLIC_URL=https://push.lmao.cl \
 PUSH_API_KEY=<demo-app key> node server.out.mjs   # :3000
 
 # 2. Frontend dev server (proxies /api + /config.json to :3000)
-cd web && npm run dev                              # :5173
+cd frontend && npm run dev                          # :5173
 ```
 
 Subscribing from a local origin requires that origin to be allowed for the app
