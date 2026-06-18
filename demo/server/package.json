@@ -1,9 +1,9 @@
 {
-  "name": "push-demo-pwa",
+  "name": "push-demo-server",
   "version": "0.2.0",
   "private": true,
   "type": "module",
-  "description": "Demo backend for the p2p.me push service — consumes @p2pdotme/push-client (PushServer). The React PWA lives in web/.",
+  "description": "Demo backend for the p2p.me push service — consumes @p2pdotme/push-client (PushServer). The React PWA lives in ../frontend.",
   "scripts": {
     "build:server": "esbuild server.mjs --bundle --platform=node --format=esm --external:express --outfile=server.out.mjs",
     "start": "node server.out.mjs"
