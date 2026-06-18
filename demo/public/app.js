@@ -37,12 +37,12 @@ function urlB64ToUint8Array(base64) {
 const supported = 'serviceWorker' in navigator && 'PushManager' in window && 'Notification' in window;
 
 async function enableNotifications() {
-  if (!supported) throw new Error('Este navegador no soporta web push.');
+  if (!supported) throw new Error('This browser does not support web push.');
   const reg = await navigator.serviceWorker.register('/push-sw.js');
   await navigator.serviceWorker.ready;
 
   const permission = await Notification.requestPermission();
-  if (permission !== 'granted') throw new Error('Permiso de notificaciones denegado.');
+  if (permission !== 'granted') throw new Error('Notification permission denied.');
 
   const { publicKey } = await (await fetch('/vapid-public-key')).json();
   const subscription = await reg.pushManager.subscribe({
@@ -55,7 +55,7 @@ async function enableNotifications() {
     headers: { 'content-type': 'application/json' },
     body: JSON.stringify({ appId: APP_ID, userId: userId(), subscription }),
   });
-  if (!res.ok) throw new Error('No se pudo registrar la suscripción.');
+  if (!res.ok) throw new Error('Could not register the subscription.');
 }
 
 async function trigger(broadcast) {
@@ -75,18 +75,18 @@ async function trigger(broadcast) {
 function markSubscribed() {
   els.send.disabled = false;
   els.broadcast.disabled = false;
-  els.enable.textContent = 'Notificaciones activadas ✓';
+  els.enable.textContent = 'Notifications enabled ✓';
   els.enable.disabled = true;
   els.uid.textContent = 'userId: ' + userId();
 }
 
 els.enable.addEventListener('click', async () => {
   els.enable.disabled = true;
-  setStatus('Activando…');
+  setStatus('Enabling…');
   try {
     await enableNotifications();
     markSubscribed();
-    setStatus('Listo. Ahora envía una notificación.', 'ok');
+    setStatus('Done. Now send a notification.', 'ok');
   } catch (err) {
     els.enable.disabled = false;
     setStatus(err.message, 'err');
@@ -95,7 +95,7 @@ els.enable.addEventListener('click', async () => {
 
 function wireSend(button, broadcast, label) {
   button.addEventListener('click', async () => {
-    setStatus('Enviando…');
+    setStatus('Sending…');
     try {
       const r = await trigger(broadcast);
       setStatus(`${label}: sent=${r.sent ?? 0} failed=${r.failed ?? 0} expired=${r.expired ?? 0}`, 'ok');
@@ -104,14 +104,14 @@ function wireSend(button, broadcast, label) {
     }
   });
 }
-wireSend(els.send, false, 'Enviado');
+wireSend(els.send, false, 'Sent');
 wireSend(els.broadcast, true, 'Broadcast');
 
 // If this browser is already subscribed (return visit), unlock the send buttons.
 (async () => {
   if (!supported) {
     els.enable.disabled = true;
-    setStatus('Este navegador no soporta web push.', 'err');
+    setStatus('This browser does not support web push.', 'err');
     return;
   }
   try {
