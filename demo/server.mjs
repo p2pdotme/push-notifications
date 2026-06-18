@@ -1,0 +1,59 @@
+// Demo backend: serves the PWA static files and forwards trigger requests to the
+// push service with the app key (kept server-side, never exposed to the browser).
+import express from 'express';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+
+const PUSH_URL = process.env.PUSH_URL ?? 'http://push:4000';
+const API_KEY = process.env.PUSH_API_KEY;
+const APP_ID = process.env.PUSH_APP_ID ?? 'demo-app';
+const PORT = Number(process.env.PORT ?? 3000);
+
+if (!API_KEY) {
+  // Fail fast: without the key the trigger endpoints can't authenticate.
+  throw new Error('PUSH_API_KEY is required');
+}
+
+const dir = path.dirname(fileURLToPath(import.meta.url));
+const app = express();
+app.use(express.json({ limit: '16kb' }));
+app.use(express.static(path.join(dir, 'public')));
+
+/** Forward a send to the push service and relay its summary. */
+async function send(notification, target) {
+  const res = await fetch(`${PUSH_URL}/notifications/send`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json', 'x-api-key': API_KEY },
+    body: JSON.stringify({ appId: APP_ID, ...target, notification }),
+  });
+  const data = await res.json().catch(() => ({}));
+  return { status: res.status, data };
+}
+
+function notificationFrom(body) {
+  return {
+    title: (body?.title || 'Demo notification').slice(0, 120),
+    body: (body?.body || '').slice(0, 300),
+    icon: '/icon.svg',
+    url: '/',
+  };
+}
+
+app.post('/api/trigger', async (req, res) => {
+  const userId = req.body?.userId;
+  if (!userId || typeof userId !== 'string') {
+    res.status(400).json({ error: 'userId is required' });
+    return;
+  }
+  const { status, data } = await send(notificationFrom(req.body), { userId });
+  res.status(status).json(data);
+});
+
+app.post('/api/broadcast', async (req, res) => {
+  const { status, data } = await send(notificationFrom(req.body), { broadcast: true });
+  res.status(status).json(data);
+});
+
+app.listen(PORT, '0.0.0.0', () => {
+  console.log(`push-demo listening on http://0.0.0.0:${PORT} -> ${PUSH_URL} (app ${APP_ID})`);
+});
