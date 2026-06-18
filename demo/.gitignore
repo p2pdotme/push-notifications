@@ -1,0 +1,8 @@
+node_modules/
+# Build artifacts (shipped to the VM but not committed).
+# Anchored to the demo root so web/public/ (React static source) is NOT ignored.
+/public/
+/server.out.mjs
+web/dist/
+# Local registry auth for the private @p2pdotme package
+.npmrc

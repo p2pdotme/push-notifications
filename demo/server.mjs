@@ -1,8 +1,9 @@
-// Demo backend: serves the PWA static files and forwards trigger requests to the
-// push service with the app key (kept server-side, never exposed to the browser).
+// Demo backend: serves the PWA and forwards trigger requests to the push service
+// using the @p2pdotme/push-client SDK (PushServer). The app key stays server-side.
 import express from 'express';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { PushServer, PushSendError } from '@p2pdotme/push-client/server';
 
 // Where this backend reaches the push service (server-to-server).
 const PUSH_URL = process.env.PUSH_URL ?? 'https://push.lmao.cl';
@@ -17,6 +18,8 @@ if (!API_KEY) {
   throw new Error('PUSH_API_KEY is required');
 }
 
+const push = new PushServer({ serverUrl: PUSH_URL, apiKey: API_KEY, appId: APP_ID });
+
 const dir = path.dirname(fileURLToPath(import.meta.url));
 const app = express();
 app.use(express.json({ limit: '16kb' }));
@@ -30,17 +33,6 @@ app.get('/config.json', (_req, res) => {
 
 app.use(express.static(path.join(dir, 'public')));
 
-/** Forward a send to the push service and relay its summary. */
-async function send(notification, target) {
-  const res = await fetch(`${PUSH_URL}/notifications/send`, {
-    method: 'POST',
-    headers: { 'content-type': 'application/json', 'x-api-key': API_KEY },
-    body: JSON.stringify({ appId: APP_ID, ...target, notification }),
-  });
-  const data = await res.json().catch(() => ({}));
-  return { status: res.status, data };
-}
-
 function notificationFrom(body) {
   return {
     title: (body?.title || 'Demo notification').slice(0, 120),
@@ -50,21 +42,32 @@ function notificationFrom(body) {
   };
 }
 
-app.post('/api/trigger', async (req, res) => {
+/** Run a PushServer send and relay its summary, mapping SDK errors to HTTP. */
+async function relay(res, run) {
+  try {
+    res.json(await run());
+  } catch (err) {
+    if (err instanceof PushSendError) {
+      res.status(err.status).json(err.body ?? { error: err.message });
+      return;
+    }
+    res.status(502).json({ error: String(err?.message ?? err) });
+  }
+}
+
+app.post('/api/trigger', (req, res) => {
   const userId = req.body?.userId;
   if (!userId || typeof userId !== 'string') {
     res.status(400).json({ error: 'userId is required' });
     return;
   }
-  const { status, data } = await send(notificationFrom(req.body), { userId });
-  res.status(status).json(data);
+  relay(res, () => push.sendToUser(userId, notificationFrom(req.body)));
 });
 
-app.post('/api/broadcast', async (req, res) => {
-  const { status, data } = await send(notificationFrom(req.body), { broadcast: true });
-  res.status(status).json(data);
+app.post('/api/broadcast', (req, res) => {
+  relay(res, () => push.broadcast(notificationFrom(req.body)));
 });
 
 app.listen(PORT, '0.0.0.0', () => {
-  console.log(`push-demo listening on http://0.0.0.0:${PORT} -> ${PUSH_URL} (app ${APP_ID})`);
+  console.log(`push-demo (SDK) listening on :${PORT} -> ${PUSH_URL} (app ${APP_ID})`);
 });
