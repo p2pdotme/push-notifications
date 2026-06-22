@@ -42,6 +42,7 @@ interface AppRow {
   app_id: string;
   name: string;
   disabled: number;
+  require_subscription_signature: number;
   created_at: string;
 }
 
@@ -50,6 +51,7 @@ function toAppRecord(row: AppRow): AppRecord {
     appId: row.app_id,
     name: row.name,
     disabled: row.disabled === 1,
+    requireSubscriptionSignature: row.require_subscription_signature === 1,
     createdAt: row.created_at,
   };
 }
@@ -275,12 +277,19 @@ export class Repository {
     return rows[0] ? toAppRecord(rows[0] as AppRow) : null;
   }
 
-  async updateApp(appId: string, patch: { name?: string; disabled?: boolean }): Promise<AppRecord | null> {
+  async updateApp(
+    appId: string,
+    patch: { name?: string; disabled?: boolean; requireSubscriptionSignature?: boolean },
+  ): Promise<AppRecord | null> {
     const current = await this.getApp(appId);
     if (!current) return null;
     const name = patch.name ?? current.name;
     const disabled = patch.disabled ?? current.disabled;
-    await this.db.query('UPDATE apps SET name = $1, disabled = $2 WHERE app_id = $3', [name, disabled ? 1 : 0, appId]);
+    const requireSig = patch.requireSubscriptionSignature ?? current.requireSubscriptionSignature;
+    await this.db.query(
+      'UPDATE apps SET name = $1, disabled = $2, require_subscription_signature = $3 WHERE app_id = $4',
+      [name, disabled ? 1 : 0, requireSig ? 1 : 0, appId],
+    );
     return this.getApp(appId);
   }
 

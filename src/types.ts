@@ -61,6 +61,8 @@ export interface AppRecord {
   appId: string;
   name: string;
   disabled: boolean;
+  /** When true, subscribing under a wallet address requires a valid signature. */
+  requireSubscriptionSignature: boolean;
   createdAt: string;
 }
 

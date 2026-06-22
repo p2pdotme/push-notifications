@@ -9,6 +9,21 @@ async function freshRepo(): Promise<Repository> {
 }
 
 describe('repository: apps', () => {
+  it('defaults require_subscription_signature to false and toggles it via updateApp', async () => {
+    const db = await createTestPool();
+    const repo = new Repository(db);
+    const app = await repo.createApp({ appId: 'sig-app', name: 'Sig App' });
+    assert.equal(app.requireSubscriptionSignature, false);
+
+    const updated = await repo.updateApp('sig-app', { requireSubscriptionSignature: true });
+    assert.equal(updated?.requireSubscriptionSignature, true);
+
+    // Unrelated patches must not clear the flag.
+    const renamed = await repo.updateApp('sig-app', { name: 'Renamed' });
+    assert.equal(renamed?.name, 'Renamed');
+    assert.equal(renamed?.requireSubscriptionSignature, true);
+  });
+
   it('creates, lists, gets, updates, and deletes apps', async () => {
     const repo = await freshRepo();
     await repo.createApp({ appId: 'user-app', name: 'User App' });
