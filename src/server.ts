@@ -14,6 +14,7 @@ import type { Repository } from './repository.js';
 import type { PushSender } from './webpush.js';
 import { subscriptionsRouter } from './routes/subscriptions.js';
 import { notificationsRouter } from './routes/notifications.js';
+import { createSubscriptionVerifier, type SubscriptionVerifier } from './subscription-verify.js';
 
 /** Shared dependencies handed to each router. */
 export interface AppContext {
@@ -22,6 +23,8 @@ export interface AppContext {
   sender: PushSender;
   /** API-key middleware, reused by app-scoped routes. */
   requireApiKey: ReturnType<typeof apiKeyAuth>;
+  /** Verifies wallet-signed subscribe proofs (EOA + smart wallet). */
+  verifier: SubscriptionVerifier;
 }
 
 /** Browser CORS for subscribe/public endpoints: reflect any registered origin. */
@@ -69,12 +72,14 @@ export function createServer(
   repo: Repository,
   sender: PushSender,
   authService: AuthService,
+  verifier: SubscriptionVerifier = createSubscriptionVerifier(config),
 ): Application {
   const ctx: AppContext = {
     config,
     repo,
     sender,
     requireApiKey: apiKeyAuth(config, repo),
+    verifier,
   };
 
   const app = express();
