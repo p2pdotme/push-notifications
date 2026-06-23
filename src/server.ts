@@ -104,7 +104,7 @@ export function createServer(
       return;
     }
     if (err instanceof HttpError) {
-      res.status(err.status).json({ error: err.message });
+      res.status(err.status).json({ error: err.message, ...(err.code ? { code: err.code } : {}) });
       return;
     }
     // eslint-disable-next-line no-console
