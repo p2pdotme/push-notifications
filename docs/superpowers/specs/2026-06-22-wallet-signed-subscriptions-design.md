@@ -131,9 +131,11 @@ The module exposes:
 - `verifySubscriptionProof({ userId, appId, endpoint, originHost, payload, signature })`
   → `Promise<boolean>` performing steps 1–6 above.
 
-The viem public client is created once (lazily) and reused. If
-`SUBSCRIBE_VERIFY_RPC_URL` is unset while a sig-required app is hit,
-verification fails closed with a clear error.
+The viem public client is created once (lazily) and reused. When
+`SUBSCRIBE_VERIFY_RPC_URL` is unset, viem falls back to its default public Base
+RPC (rate-limited; configure a dedicated endpoint for production). EOA
+signatures verify offline regardless; an invalid signature fails closed
+(verification returns false → 401).
 
 ## Per-app opt-in & rollout
 
@@ -180,9 +182,11 @@ verification fails closed with a clear error.
 - `SUBSCRIBE_VERIFY_CHAIN_ID` — default `8453` (Base).
 
 Both are **optional at startup** (validated lazily) so existing deployments that
-don't use the feature keep running; verification fails closed if a sig-required
-app is hit without an RPC configured. Documented in `.env.example` and the
-README.
+don't use the feature keep running. When `SUBSCRIBE_VERIFY_RPC_URL` is unset,
+viem falls back to its default public Base RPC (rate-limited; configure a
+dedicated endpoint for production). EOA signatures verify offline regardless;
+an invalid signature fails closed (returns false → 401). Documented in
+`.env.example` and the README.
 
 ## Testing
 

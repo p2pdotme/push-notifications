@@ -70,6 +70,9 @@ before(async () => {
   await repo.createApp({ appId: 'sig-app', name: 'Sig App' });
   await repo.updateApp('sig-app', { requireSubscriptionSignature: true });
   await repo.addCorsOrigin({ appId: 'sig-app', origin: ORIGIN });
+  await repo.createApp({ appId: 'sig-app-2', name: 'Sig App 2' });
+  await repo.updateApp('sig-app-2', { requireSubscriptionSignature: true });
+  await repo.addCorsOrigin({ appId: 'sig-app-2', origin: ORIGIN });
   await repo.createApp({ appId: 'open-app', name: 'Open App' });
   await repo.addCorsOrigin({ appId: 'open-app', origin: ORIGIN });
   const app = createServer(config, repo, sender, new FakeAuthService(), createSubscriptionVerifier(config, oxVerifier));
@@ -117,6 +120,7 @@ describe('signature-required subscribe', () => {
       body: JSON.stringify({ appId: 'sig-app', userId: ADDRESS, subscription: makeSub('https://push.example.com/DIFFERENT'), payload, signature }),
     });
     assert.equal(res.status, 401);
+    assert.equal(((await res.json()) as { code?: string }).code, 'invalid_signature');
   });
 
   it('allows an unsigned refresh of an already-verified (endpoint, userId)', async () => {
@@ -134,5 +138,21 @@ describe('signature-required subscribe', () => {
       body: JSON.stringify({ appId: 'open-app', userId: 'alice', subscription: makeSub('https://push.example.com/legacy') }),
     });
     assert.equal(res.status, 201);
+  });
+
+  it('rejects an unsigned cross-app refresh (verified on sig-app, attempt on sig-app-2)', async () => {
+    // Endpoint distinct from all other tests to avoid cross-test interference.
+    const endpoint = 'https://push.example.com/cross-app-refresh';
+    // First: fully verify under sig-app.
+    const verifyRes = await subscribeWithProof(endpoint);
+    assert.equal(verifyRes.status, 201, 'initial signed subscribe should succeed');
+    // Then: attempt unsigned subscribe for the SAME endpoint + SAME userId but under sig-app-2.
+    const res = await fetch(`${base}/subscriptions`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Origin: ORIGIN },
+      body: JSON.stringify({ appId: 'sig-app-2', userId: ADDRESS, subscription: makeSub(endpoint) }),
+    });
+    assert.equal(res.status, 401);
+    assert.equal(((await res.json()) as { code?: string }).code, 'signature_required');
   });
 });

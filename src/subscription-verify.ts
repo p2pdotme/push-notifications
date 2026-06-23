@@ -116,8 +116,10 @@ export function createSubscriptionVerifier(
 
       // 4. Freshness window.
       const now = Date.now();
-      if (!p.expiration_time || Date.parse(p.expiration_time) < now) return false;
-      if (!p.invalid_before || Date.parse(p.invalid_before) > now) return false;
+      const exp = Date.parse(p.expiration_time ?? '');
+      if (Number.isNaN(exp) || exp < now) return false;
+      const notBefore = Date.parse(p.invalid_before ?? '');
+      if (Number.isNaN(notBefore) || notBefore > now) return false;
 
       // 5. Cryptographic check (EOA / EIP-1271 / EIP-6492).
       const message = createLoginMessage(p);

@@ -10,6 +10,7 @@ import {
   createSubscriptionVerifier,
   type SignatureVerifier,
 } from '../src/subscription-verify.js';
+import { createLoginMessage } from '../src/siwe.js';
 import type { Config } from '../src/config.js';
 
 const PRIVATE_KEY = '0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80';
@@ -104,6 +105,19 @@ describe('verifyProof', () => {
     const ok = await verifier.verifyProof({
       userId: ADDRESS, appId: APP, endpoint: ENDPOINT, originHost: ORIGIN,
       payload: expired, signature: sign(message),
+    });
+    assert.equal(ok, false);
+  });
+
+  it('rejects a payload with a garbage (NaN) expiration_time', async () => {
+    const { payload } = verifier.buildChallenge({
+      address: ADDRESS, appId: APP, endpoint: ENDPOINT, originHost: ORIGIN,
+    });
+    const tampered = { ...payload, expiration_time: 'not-a-date' };
+    // Sign the tampered message so only the freshness check (not the signature) fails.
+    const ok = await verifier.verifyProof({
+      userId: ADDRESS, appId: APP, endpoint: ENDPOINT, originHost: ORIGIN,
+      payload: tampered, signature: sign(createLoginMessage(tampered)),
     });
     assert.equal(ok, false);
   });

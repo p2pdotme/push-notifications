@@ -63,7 +63,8 @@ export function subscriptionsRouter(ctx: AppContext): Router {
         // Allow an unsigned refresh of an already-verified (endpoint, userId).
         const existing = await ctx.repo.getSubscriptionByEndpoint(parsed.subscription.endpoint);
         const sameUser = !!existing?.userId && existing.userId.toLowerCase() === userId.toLowerCase();
-        if (!existing || !sameUser || !existing.verifiedAt) {
+        const sameApp = existing?.appId === parsed.appId;
+        if (!existing || !sameUser || !sameApp || !existing.verifiedAt) {
           throw new HttpError(401, 'A wallet signature is required to subscribe', 'signature_required');
         }
         // verifiedAt stays null; the upsert's COALESCE preserves the prior timestamp.
