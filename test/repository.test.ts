@@ -106,6 +106,36 @@ describe('repository: admins', () => {
   });
 });
 
+describe('repository: subscriptions verified_at', () => {
+  it('records verified_at on upsert and preserves it on a null re-sync', async () => {
+    const db = await createTestPool();
+    const repo = new Repository(db);
+    const sub = { endpoint: 'https://push.example.com/x', keys: { p256dh: 'p'.repeat(20), auth: 'a'.repeat(16) } };
+
+    const first = await repo.upsertSubscription({
+      appId: 'user-app', userId: '0xabc', subscription: sub, userAgent: null, verifiedAt: null,
+    });
+    assert.equal(first.verifiedAt, null);
+
+    const stamp = '2026-06-22T00:00:00.000Z';
+    const verified = await repo.upsertSubscription({
+      appId: 'user-app', userId: '0xabc', subscription: sub, userAgent: null, verifiedAt: stamp,
+    });
+    assert.ok(verified.verifiedAt, 'verified_at should be set');
+
+    // A later null re-sync must NOT clear the prior verification.
+    const resynced = await repo.upsertSubscription({
+      appId: 'user-app', userId: '0xabc', subscription: sub, userAgent: 'UA', verifiedAt: null,
+    });
+    assert.ok(resynced.verifiedAt, 'verified_at must be preserved');
+
+    const fetched = await repo.getSubscriptionByEndpoint(sub.endpoint);
+    assert.equal(fetched?.userId, '0xabc');
+    assert.ok(fetched?.verifiedAt);
+    assert.equal(await repo.getSubscriptionByEndpoint('https://nope'), null);
+  });
+});
+
 describe('pruneOldLogs', () => {
   it('deletes only rows older than the retention window', async () => {
     const pool = await createTestPool();

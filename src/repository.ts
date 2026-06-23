@@ -20,6 +20,7 @@ interface SubscriptionRow {
   last_success_at: string | null;
   failure_count: number;
   disabled: number;
+  verified_at: string | null;
 }
 
 function toRecord(row: SubscriptionRow): SubscriptionRecord {
@@ -35,6 +36,7 @@ function toRecord(row: SubscriptionRow): SubscriptionRecord {
     lastSuccessAt: row.last_success_at,
     failureCount: row.failure_count,
     disabled: row.disabled,
+    verifiedAt: row.verified_at,
   };
 }
 
@@ -151,24 +153,32 @@ export class Repository {
     userId: string | null;
     subscription: PushSubscriptionJSON;
     userAgent: string | null;
+    verifiedAt: string | null;
   }): Promise<SubscriptionRecord> {
-    const { appId, userId, subscription, userAgent } = input;
+    const { appId, userId, subscription, userAgent, verifiedAt } = input;
     const q = sql(
-      `INSERT INTO subscriptions (app_id, user_id, endpoint, p256dh, auth, user_agent)
-       VALUES (@appId, @userId, @endpoint, @p256dh, @auth, @userAgent)
+      `INSERT INTO subscriptions (app_id, user_id, endpoint, p256dh, auth, user_agent, verified_at)
+       VALUES (@appId, @userId, @endpoint, @p256dh, @auth, @userAgent, @verifiedAt)
        ON CONFLICT(endpoint) DO UPDATE SET
          app_id        = excluded.app_id,
          user_id       = excluded.user_id,
          p256dh        = excluded.p256dh,
          auth          = excluded.auth,
          user_agent    = excluded.user_agent,
+         verified_at   = COALESCE(excluded.verified_at, subscriptions.verified_at),
          failure_count = 0,
          disabled      = 0
        RETURNING *`,
-      { appId, userId, endpoint: subscription.endpoint, p256dh: subscription.keys.p256dh, auth: subscription.keys.auth, userAgent },
+      { appId, userId, endpoint: subscription.endpoint, p256dh: subscription.keys.p256dh, auth: subscription.keys.auth, userAgent, verifiedAt },
     );
     const { rows } = await this.db.query(q.text, q.values);
     return toRecord(rows[0] as SubscriptionRow);
+  }
+
+  /** Fetch a single subscription by its push endpoint, or null. */
+  async getSubscriptionByEndpoint(endpoint: string): Promise<SubscriptionRecord | null> {
+    const { rows } = await this.db.query('SELECT * FROM subscriptions WHERE endpoint = $1', [endpoint]);
+    return rows[0] ? toRecord(rows[0] as SubscriptionRow) : null;
   }
 
   async deleteByEndpoint(endpoint: string): Promise<boolean> {

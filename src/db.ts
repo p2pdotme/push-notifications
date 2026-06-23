@@ -92,6 +92,7 @@ export const MIGRATION_SQL = `
   );
 
   ALTER TABLE apps ADD COLUMN IF NOT EXISTS require_subscription_signature integer NOT NULL DEFAULT 0;
+  ALTER TABLE subscriptions ADD COLUMN IF NOT EXISTS verified_at timestamptz;
 `;
 
 /** Opens a pooled Postgres connection and ensures the schema exists. */

@@ -46,6 +46,8 @@ export interface SubscriptionRecord {
   lastSuccessAt: string | null;
   failureCount: number;
   disabled: number;
+  /** When the subscriber proved control of `userId` via signature; null if unverified. */
+  verifiedAt: string | null;
 }
 
 /** Identity resolved from an API key. */

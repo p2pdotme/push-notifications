@@ -24,6 +24,7 @@ export function subscriptionsRouter(ctx: AppContext): Router {
       userId: parsed.userId ?? null,
       subscription: parsed.subscription,
       userAgent: req.header('user-agent') ?? null,
+      verifiedAt: null,
     });
     res.status(201).json({ id: record.id, appId: record.appId });
   }));
