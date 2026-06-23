@@ -339,6 +339,10 @@ throws `SignatureRequiredError`. Already-verified channels refresh without
 re-signing; a new endpoint or a changed wallet requires a fresh signature.
 Configure `SUBSCRIBE_VERIFY_RPC_URL` (a Base RPC) for smart-wallet verification.
 
+For wiring `signMessage` to specific wallet libraries (thirdweb, wagmi/viem,
+ethers, injected), the raw HTTP flow, and the operator/rollout guide, see
+[`docs/wallet-signed-subscriptions.md`](./docs/wallet-signed-subscriptions.md).
+
 ## Notes & limits
 
 - **iOS**: web push works only for PWAs added to the Home Screen (iOS 16.4+).
