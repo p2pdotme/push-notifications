@@ -10,9 +10,13 @@ export function AppDetail() {
   const [origin, setOrigin] = useState('');
   const [issued, setIssued] = useState<string>('');
   const [error, setError] = useState('');
+  const [requireSig, setRequireSig] = useState(false);
 
   const load = async () => {
     try {
+      const apps = await api.listApps();
+      const app = apps.find((a) => a.appId === appId);
+      setRequireSig(app?.requireSubscriptionSignature ?? false);
       setKeys(await api.listKeys(appId));
       setOrigins(await api.listOrigins(appId));
     } catch (e) { setError((e as Error).message); }
@@ -36,10 +40,25 @@ export function AppDetail() {
   };
   const removeOrigin = async (id: number) => { await api.deleteOrigin(id); await load(); };
 
+  const toggleRequireSig = async () => {
+    setError('');
+    try {
+      const next = !requireSig;
+      await api.updateApp(appId, { requireSubscriptionSignature: next });
+      setRequireSig(next);
+    } catch (e) { setError((e as Error).message); }
+  };
+
   return (
     <section>
       <h1>{appId}</h1>
       {error && <p style={{ color: 'crimson' }}>{error}</p>}
+
+      <h3>Subscription security</h3>
+      <label>
+        <input type="checkbox" checked={requireSig} onChange={toggleRequireSig} />{' '}
+        Require a wallet signature to subscribe (EOA + smart wallets)
+      </label>
 
       <h3>API keys</h3>
       {issued && (
