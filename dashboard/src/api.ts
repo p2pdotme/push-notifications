@@ -24,7 +24,7 @@ async function req<T>(path: string, opts: RequestInit = {}): Promise<T> {
   return res.status === 204 ? (null as T) : ((await res.json()) as T);
 }
 
-export interface AppRecord { appId: string; name: string; disabled: boolean; createdAt: string }
+export interface AppRecord { appId: string; name: string; disabled: boolean; requireSubscriptionSignature: boolean; createdAt: string }
 export interface ApiKeyRecord {
   id: number; appId: string; keyPrefix: string; label: string | null;
   createdBy: string | null; createdAt: string; lastUsedAt: string | null; revokedAt: string | null;
@@ -37,6 +37,8 @@ export const api = {
   listApps: () => req<AppRecord[]>('/admin/apps'),
   createApp: (b: { appId: string; name: string }) => req<AppRecord>('/admin/apps', { method: 'POST', body: JSON.stringify(b) }),
   deleteApp: (appId: string) => req<null>(`/admin/apps/${appId}`, { method: 'DELETE' }),
+  updateApp: (appId: string, b: { name?: string; disabled?: boolean; requireSubscriptionSignature?: boolean }) =>
+    req<AppRecord>(`/admin/apps/${appId}`, { method: 'PATCH', body: JSON.stringify(b) }),
 
   listKeys: (appId: string) => req<ApiKeyRecord[]>(`/admin/apps/${appId}/keys`),
   createKey: (appId: string, b: { label?: string }) => req<IssuedKey>(`/admin/apps/${appId}/keys`, { method: 'POST', body: JSON.stringify(b) }),

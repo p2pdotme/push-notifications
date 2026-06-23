@@ -11,10 +11,34 @@ export const pushSubscriptionSchema = z.object({
   }),
 });
 
+/** EIP-4361 SIWE payload the client signs to prove wallet control. */
+export const siwePayloadSchema = z.object({
+  domain: z.string().min(1),
+  address: z.string().min(1),
+  statement: z.string().optional(),
+  uri: z.string().optional(),
+  version: z.string().min(1),
+  chain_id: z.string().optional(),
+  nonce: z.string().min(1),
+  issued_at: z.string().min(1),
+  expiration_time: z.string().min(1),
+  invalid_before: z.string().min(1),
+  resources: z.array(z.string()).optional(),
+});
+
 export const subscribeSchema = z.object({
   appId: z.string().min(1),
   userId: z.string().min(1).nullable().optional(),
   subscription: pushSubscriptionSchema,
+  /** Optional proof-of-ownership (required when the app enables signatures). */
+  payload: siwePayloadSchema.optional(),
+  signature: z.string().min(1).optional(),
+});
+
+export const subscriptionChallengeSchema = z.object({
+  appId: z.string().min(1),
+  address: z.string().regex(/^0x[a-fA-F0-9]{40}$/, 'address must be a 0x-prefixed 40-hex string'),
+  endpoint: z.string().url(),
 });
 
 export const unsubscribeSchema = z.object({
@@ -69,10 +93,15 @@ export const createAppSchema = z.object({
 });
 
 export const updateAppSchema = z
-  .object({ name: z.string().min(1).max(120).optional(), disabled: z.boolean().optional() })
-  .refine((v) => v.name !== undefined || v.disabled !== undefined, {
-    message: 'Provide at least one of: name, disabled',
-  });
+  .object({
+    name: z.string().min(1).max(120).optional(),
+    disabled: z.boolean().optional(),
+    requireSubscriptionSignature: z.boolean().optional(),
+  })
+  .refine(
+    (v) => v.name !== undefined || v.disabled !== undefined || v.requireSubscriptionSignature !== undefined,
+    { message: 'Provide at least one of: name, disabled, requireSubscriptionSignature' },
+  );
 
 export const createKeySchema = z.object({ label: z.string().min(1).max(120).optional() });
 

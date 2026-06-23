@@ -20,6 +20,7 @@ interface SubscriptionRow {
   last_success_at: string | null;
   failure_count: number;
   disabled: number;
+  verified_at: string | null;
 }
 
 function toRecord(row: SubscriptionRow): SubscriptionRecord {
@@ -35,6 +36,7 @@ function toRecord(row: SubscriptionRow): SubscriptionRecord {
     lastSuccessAt: row.last_success_at,
     failureCount: row.failure_count,
     disabled: row.disabled,
+    verifiedAt: row.verified_at,
   };
 }
 
@@ -42,6 +44,7 @@ interface AppRow {
   app_id: string;
   name: string;
   disabled: number;
+  require_subscription_signature: number;
   created_at: string;
 }
 
@@ -50,6 +53,7 @@ function toAppRecord(row: AppRow): AppRecord {
     appId: row.app_id,
     name: row.name,
     disabled: row.disabled === 1,
+    requireSubscriptionSignature: row.require_subscription_signature === 1,
     createdAt: row.created_at,
   };
 }
@@ -149,24 +153,32 @@ export class Repository {
     userId: string | null;
     subscription: PushSubscriptionJSON;
     userAgent: string | null;
+    verifiedAt: string | null;
   }): Promise<SubscriptionRecord> {
-    const { appId, userId, subscription, userAgent } = input;
+    const { appId, userId, subscription, userAgent, verifiedAt } = input;
     const q = sql(
-      `INSERT INTO subscriptions (app_id, user_id, endpoint, p256dh, auth, user_agent)
-       VALUES (@appId, @userId, @endpoint, @p256dh, @auth, @userAgent)
+      `INSERT INTO subscriptions (app_id, user_id, endpoint, p256dh, auth, user_agent, verified_at)
+       VALUES (@appId, @userId, @endpoint, @p256dh, @auth, @userAgent, @verifiedAt)
        ON CONFLICT(endpoint) DO UPDATE SET
          app_id        = excluded.app_id,
          user_id       = excluded.user_id,
          p256dh        = excluded.p256dh,
          auth          = excluded.auth,
          user_agent    = excluded.user_agent,
+         verified_at   = COALESCE(excluded.verified_at, subscriptions.verified_at),
          failure_count = 0,
          disabled      = 0
        RETURNING *`,
-      { appId, userId, endpoint: subscription.endpoint, p256dh: subscription.keys.p256dh, auth: subscription.keys.auth, userAgent },
+      { appId, userId, endpoint: subscription.endpoint, p256dh: subscription.keys.p256dh, auth: subscription.keys.auth, userAgent, verifiedAt },
     );
     const { rows } = await this.db.query(q.text, q.values);
     return toRecord(rows[0] as SubscriptionRow);
+  }
+
+  /** Fetch a single subscription by its push endpoint, or null. */
+  async getSubscriptionByEndpoint(endpoint: string): Promise<SubscriptionRecord | null> {
+    const { rows } = await this.db.query('SELECT * FROM subscriptions WHERE endpoint = $1', [endpoint]);
+    return rows[0] ? toRecord(rows[0] as SubscriptionRow) : null;
   }
 
   async deleteByEndpoint(endpoint: string): Promise<boolean> {
@@ -275,12 +287,19 @@ export class Repository {
     return rows[0] ? toAppRecord(rows[0] as AppRow) : null;
   }
 
-  async updateApp(appId: string, patch: { name?: string; disabled?: boolean }): Promise<AppRecord | null> {
+  async updateApp(
+    appId: string,
+    patch: { name?: string; disabled?: boolean; requireSubscriptionSignature?: boolean },
+  ): Promise<AppRecord | null> {
     const current = await this.getApp(appId);
     if (!current) return null;
     const name = patch.name ?? current.name;
     const disabled = patch.disabled ?? current.disabled;
-    await this.db.query('UPDATE apps SET name = $1, disabled = $2 WHERE app_id = $3', [name, disabled ? 1 : 0, appId]);
+    const requireSig = patch.requireSubscriptionSignature ?? current.requireSubscriptionSignature;
+    await this.db.query(
+      'UPDATE apps SET name = $1, disabled = $2, require_subscription_signature = $3 WHERE app_id = $4',
+      [name, disabled ? 1 : 0, requireSig ? 1 : 0, appId],
+    );
     return this.getApp(appId);
   }
 
