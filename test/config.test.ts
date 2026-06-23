@@ -62,6 +62,28 @@ describe('loadConfig auth env', () => {
     assert.equal(c.logRetentionDays, 0);
   });
 
+  it('defaults subscribe verification chain to Base (8453) and rpc url to empty', () => {
+    baseEnv();
+    process.env.AUTH_DOMAIN = 'd';
+    process.env.AUTH_JWT_SECRET = 's';
+    delete process.env.SUBSCRIBE_VERIFY_RPC_URL;
+    delete process.env.SUBSCRIBE_VERIFY_CHAIN_ID;
+    const c = loadConfig();
+    assert.equal(c.subscribeVerifyChainId, 8453);
+    assert.equal(c.subscribeVerifyRpcUrl, '');
+  });
+
+  it('reads SUBSCRIBE_VERIFY_RPC_URL and SUBSCRIBE_VERIFY_CHAIN_ID', () => {
+    baseEnv();
+    process.env.AUTH_DOMAIN = 'd';
+    process.env.AUTH_JWT_SECRET = 's';
+    process.env.SUBSCRIBE_VERIFY_RPC_URL = 'https://base-rpc.example/key';
+    process.env.SUBSCRIBE_VERIFY_CHAIN_ID = '8453';
+    const c = loadConfig();
+    assert.equal(c.subscribeVerifyRpcUrl, 'https://base-rpc.example/key');
+    assert.equal(c.subscribeVerifyChainId, 8453);
+  });
+
   it('throws when no auth domain is set', () => {
     baseEnv();
     process.env.AUTH_JWT_SECRET = 's';

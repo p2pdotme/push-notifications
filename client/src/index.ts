@@ -29,6 +29,23 @@ export class PushNotSupportedError extends Error {
   }
 }
 
+/** Thrown when the app requires a wallet signature but no `signMessage` was supplied. */
+export class SignatureRequiredError extends Error {
+  constructor() {
+    super('This app requires a wallet signature to subscribe; pass a signMessage callback');
+    this.name = 'SignatureRequiredError';
+  }
+}
+
+export interface SubscribeOptions {
+  /**
+   * Sign the server-issued challenge message to prove control of the wallet
+   * `userId`. Works with any wallet (EOA or smart wallet) — return the
+   * signature hex. Required when the target app enables signature enforcement.
+   */
+  signMessage?: (message: string) => Promise<string>;
+}
+
 /** True when the browser exposes the APIs required for Web Push. */
 export function isPushSupported(): boolean {
   return (
@@ -85,7 +102,7 @@ export class PushClient {
    * and register the subscription with the server. Associate it with `userId`
    * so the backend can target this user later. Returns the PushSubscription.
    */
-  async subscribe(userId?: string): Promise<PushSubscription> {
+  async subscribe(userId?: string, opts?: SubscribeOptions): Promise<PushSubscription> {
     if (!isPushSupported()) throw new PushNotSupportedError();
 
     const permission = await this.requestPermission();
@@ -104,12 +121,21 @@ export class PushClient {
         applicationServerKey: urlBase64ToUint8Array(key),
       }));
 
-    await this.sync(subscription, userId);
+    await this.sync(subscription, userId, opts?.signMessage);
     return subscription;
   }
 
-  /** Send (or refresh) the subscription on the server. */
-  async sync(subscription: PushSubscription, userId?: string): Promise<void> {
+  /** Send (or refresh) the subscription on the server, signing a proof when asked. */
+  async sync(
+    subscription: PushSubscription,
+    userId?: string,
+    signMessage?: (message: string) => Promise<string>,
+  ): Promise<void> {
+    let proof: { payload: unknown; signature: string } | undefined;
+    if (signMessage && userId) {
+      proof = await this.requestProof(subscription, userId, signMessage);
+    }
+
     const res = await fetch(`${this.serverUrl}/subscriptions`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -117,11 +143,35 @@ export class PushClient {
         appId: this.appId,
         userId: userId ?? null,
         subscription: subscription.toJSON(),
+        ...(proof ?? {}),
       }),
     });
+
+    if (res.status === 401) {
+      const body = (await res.json().catch(() => ({}))) as { code?: string };
+      if (body.code === 'signature_required') throw new SignatureRequiredError();
+      throw new Error('Subscription rejected: invalid wallet signature');
+    }
     if (!res.ok) {
       throw new Error(`Failed to register subscription: ${res.status}`);
     }
+  }
+
+  /** Fetch a challenge for this channel and sign it. */
+  private async requestProof(
+    subscription: PushSubscription,
+    address: string,
+    signMessage: (message: string) => Promise<string>,
+  ): Promise<{ payload: unknown; signature: string }> {
+    const res = await fetch(`${this.serverUrl}/subscriptions/challenge`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ appId: this.appId, address, endpoint: subscription.endpoint }),
+    });
+    if (!res.ok) throw new Error(`Failed to obtain subscription challenge: ${res.status}`);
+    const { payload, message } = (await res.json()) as { payload: unknown; message: string };
+    const signature = await signMessage(message);
+    return { payload, signature };
   }
 
   /** Unsubscribe locally and remove the channel from the server. */

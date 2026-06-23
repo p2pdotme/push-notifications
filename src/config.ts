@@ -84,6 +84,8 @@ export interface Config {
   jwtSecret: string;
   sendConcurrency: number;
   logRetentionDays: number;
+  subscribeVerifyRpcUrl: string;
+  subscribeVerifyChainId: number;
 }
 
 export function loadConfig(): Config {
@@ -107,5 +109,7 @@ export function loadConfig(): Config {
     jwtSecret: required2(['AUTH_JWT_SECRET', 'THIRDWEB_AUTH_PRIVATE_KEY']),
     sendConcurrency: Number(optional('SEND_CONCURRENCY', '25')),
     logRetentionDays: Number(optional('LOG_RETENTION_DAYS', '0')),
+    subscribeVerifyRpcUrl: optional('SUBSCRIBE_VERIFY_RPC_URL', ''),
+    subscribeVerifyChainId: Number(optional('SUBSCRIBE_VERIFY_CHAIN_ID', '8453')),
   };
 }

@@ -73,11 +73,12 @@ export function assertAppAccess(auth: AuthContext | undefined, appId: string): v
   }
 }
 
-/** Lightweight error carrying an HTTP status, handled by the error middleware. */
+/** Lightweight error carrying an HTTP status (+ optional machine code), handled by the error middleware. */
 export class HttpError extends Error {
   constructor(
     public readonly status: number,
     message: string,
+    public readonly code?: string,
   ) {
     super(message);
   }

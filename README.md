@@ -306,6 +306,39 @@ await push.unsubscribe();
 See [`examples/react-usage.tsx`](./examples/react-usage.tsx) for a React hook
 and [`examples/send.mjs`](./examples/send.mjs) for a backend sender.
 
+## Wallet-signed subscriptions
+
+By default the subscribe endpoint is open (browsers can't hold API keys). To
+stop anyone registering a push channel under someone else's wallet address,
+enable **Require a wallet signature to subscribe** for an app in the dashboard.
+
+**Flow:**
+
+1. The browser subscribes via `PushManager` (gets its `endpoint`).
+2. It calls `POST /subscriptions/challenge` `{ appId, address, endpoint }` and
+   receives an EIP-4361 `{ payload, message }`, bound to the exact push channel
+   (`appId` + `sha256(endpoint)`) and the calling origin.
+3. The wallet signs `message`; the browser posts the subscription plus
+   `{ payload, signature }`.
+
+The server verifies the signature with viem against **Base** — `ecrecover` for
+EOAs, EIP-1271 `isValidSignature` for deployed smart wallets, and EIP-6492 for
+counterfactual (not-yet-deployed) ones.
+
+```ts
+const push = usePush({
+  serverUrl: 'https://push.p2p.me',
+  appId: 'user-app',
+  userId: walletAddress,                        // the wallet to prove
+  signMessage: (msg) => wallet.signMessage(msg) // EOA or smart wallet
+});
+```
+
+If the app requires a signature and no `signMessage` is provided, `subscribe()`
+throws `SignatureRequiredError`. Already-verified channels refresh without
+re-signing; a new endpoint or a changed wallet requires a fresh signature.
+Configure `SUBSCRIBE_VERIFY_RPC_URL` (a Base RPC) for smart-wallet verification.
+
 ## Notes & limits
 
 - **iOS**: web push works only for PWAs added to the Home Screen (iOS 16.4+).

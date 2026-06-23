@@ -33,6 +33,8 @@ const config: Config = {
   jwtSecret: 'x',
   sendConcurrency: 25,
   logRetentionDays: 0,
+  subscribeVerifyRpcUrl: '',
+  subscribeVerifyChainId: 8453,
 };
 
 let server: Server;

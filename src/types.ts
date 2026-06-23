@@ -46,6 +46,8 @@ export interface SubscriptionRecord {
   lastSuccessAt: string | null;
   failureCount: number;
   disabled: number;
+  /** When the subscriber proved control of `userId` via signature; null if unverified. */
+  verifiedAt: string | null;
 }
 
 /** Identity resolved from an API key. */
@@ -61,6 +63,8 @@ export interface AppRecord {
   appId: string;
   name: string;
   disabled: boolean;
+  /** When true, subscribing under a wallet address requires a valid signature. */
+  requireSubscriptionSignature: boolean;
   createdAt: string;
 }
 

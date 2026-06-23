@@ -14,6 +14,8 @@ import { PushClient, isPushSupported, type PushClientOptions } from './index.js'
 export interface UsePushOptions extends PushClientOptions {
   /** User to associate the subscription with, so the backend can target them. */
   userId?: string;
+  /** Sign the challenge to prove wallet control (required for signature-enabled apps). */
+  signMessage?: (message: string) => Promise<string>;
 }
 
 export interface UsePush {
@@ -39,7 +41,7 @@ export interface UsePush {
  * option) re-creates it.
  */
 export function usePush(options: UsePushOptions): UsePush {
-  const { userId, serverUrl, appId, serviceWorkerUrl, vapidPublicKey } = options;
+  const { userId, signMessage, serverUrl, appId, serviceWorkerUrl, vapidPublicKey } = options;
 
   const client = useMemo(
     () => new PushClient({ serverUrl, appId, serviceWorkerUrl, vapidPublicKey }),
@@ -71,7 +73,7 @@ export function usePush(options: UsePushOptions): UsePush {
     setLoading(true);
     setError(null);
     try {
-      await client.subscribe(userId);
+      await client.subscribe(userId, { signMessage });
       setPermission(Notification.permission);
       setSubscribed(true);
     } catch (err) {
@@ -80,7 +82,7 @@ export function usePush(options: UsePushOptions): UsePush {
     } finally {
       setLoading(false);
     }
-  }, [client, userId]);
+  }, [client, userId, signMessage]);
 
   const unsubscribe = useCallback(async () => {
     setLoading(true);
