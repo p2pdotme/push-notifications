@@ -32,7 +32,7 @@
     "directory": "client"
   },
   "publishConfig": {
-    "registry": "https://npm.pkg.github.com"
+    "access": "public"
   },
   "scripts": {
     "build": "tsc -p tsconfig.json",
