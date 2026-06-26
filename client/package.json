@@ -1,6 +1,6 @@
 {
   "name": "@p2pdotme/push-client",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "Framework-agnostic browser client for the p2p.me self-hosted push notification service.",
   "license": "MIT",
   "homepage": "https://github.com/p2pdotme/push-notifications#readme",
