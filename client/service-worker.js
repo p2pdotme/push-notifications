@@ -37,7 +37,16 @@ self.addEventListener('push', (event) => {
 
 self.addEventListener('notificationclick', (event) => {
   event.notification.close();
-  const targetUrl = (event.notification.data && event.notification.data.url) || '/';
+  // Only follow http(s) / same-origin URLs from the (untrusted) push payload;
+  // ignore javascript:, data:, and other schemes before focus/openWindow.
+  let targetUrl = '/';
+  const raw = (event.notification.data && event.notification.data.url) || '/';
+  try {
+    const u = new URL(raw, self.location.origin);
+    if (u.protocol === 'https:' || u.protocol === 'http:') targetUrl = u.href;
+  } catch (err) {
+    targetUrl = '/';
+  }
 
   event.waitUntil(
     self.clients
