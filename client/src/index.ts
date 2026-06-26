@@ -181,11 +181,15 @@ export class PushClient {
     const subscription = await registration.pushManager.getSubscription();
     if (!subscription) return false;
 
-    await fetch(`${this.serverUrl}/subscriptions`, {
+    const res = await fetch(`${this.serverUrl}/subscriptions`, {
       method: 'DELETE',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ endpoint: subscription.endpoint }),
     });
+    // Only drop the local subscription once the server confirms removal; otherwise
+    // throw so the caller can retry (a failed delete self-heals via 410-pruning,
+    // but we shouldn't report success on a server error).
+    if (!res.ok) throw new Error(`Failed to remove subscription: ${res.status}`);
     return subscription.unsubscribe();
   }
 
