@@ -50,8 +50,8 @@ test("provision push app", async ({ page }) => {
   await expect(page.getByRole("heading", { name: APP_ID })).toBeVisible();
 
   // 4. Require a wallet signature to subscribe.
-  const sig = page.getByLabel(/Require a wallet signature to subscribe/);
-  if (REQUIRE_SIG && !(await sig.isChecked())) await sig.check();
+  const sig = page.getByLabel(/require a wallet signature to subscribe/i);
+  if (REQUIRE_SIG && (await sig.count()) > 0 && !(await sig.isChecked())) await sig.check();
 
   // 5. Add the frontend CORS origin (skip if already listed).
   if ((await page.getByText(CORS_ORIGIN, { exact: false }).count()) === 0) {
@@ -63,7 +63,7 @@ test("provision push app", async ({ page }) => {
   // 6. Mint an API key and capture it (the server shows the secret exactly once).
   await page.getByPlaceholder("label (optional)").fill("polycule backend (PUSH_API_KEY)");
   await page.getByRole("button", { name: "Issue key" }).click();
-  const issued = page.locator("p", { hasText: "shown once" }).locator("code");
+  const issued = page.locator("p", { hasText: "shown once" }).locator("code").first();
   await expect(issued).toBeVisible();
   const key = (await issued.textContent())?.trim();
   console.log("\n>>> PUSH_API_KEY (store as the backend secret — shown once):\n" + key + "\n");
