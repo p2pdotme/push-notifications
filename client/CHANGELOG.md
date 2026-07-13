@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.3.1](https://github.com/p2pdotme/push-notifications/compare/v0.3.0...v0.3.1) (2026-07-13)
+
+
+### Bug Fixes
+
+* **client:** resubscribe when existing subscription has a different VAPID key ([#14](https://github.com/p2pdotme/push-notifications/issues/14)) ([b05790a](https://github.com/p2pdotme/push-notifications/commit/b05790a3b7311bb30c1522c963b8f736b1541ffe))
+
 ## [0.3.0](https://github.com/p2pdotme/push-notifications/compare/v0.2.0...v0.3.0) (2026-06-26)
 
 
