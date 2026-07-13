@@ -67,6 +67,14 @@ function urlBase64ToUint8Array(base64String: string): Uint8Array<ArrayBuffer> {
   return output;
 }
 
+/** Byte-compare a subscription's applicationServerKey against the expected VAPID key. */
+function keysMatch(existing: ArrayBuffer | null | undefined, expected: Uint8Array): boolean {
+  if (!existing) return false;
+  const bytes = new Uint8Array(existing);
+  if (bytes.length !== expected.length) return false;
+  return bytes.every((b, i) => b === expected[i]);
+}
+
 export class PushClient {
   private readonly serverUrl: string;
   private readonly appId: string;
@@ -114,12 +122,21 @@ export class PushClient {
     await navigator.serviceWorker.ready;
 
     const key = await this.getVapidPublicKey();
-    const subscription =
-      (await registration.pushManager.getSubscription()) ??
-      (await registration.pushManager.subscribe({
-        userVisibleOnly: true,
-        applicationServerKey: urlBase64ToUint8Array(key),
-      }));
+    const applicationServerKey = urlBase64ToUint8Array(key);
+
+    // A subscription is bound to the applicationServerKey it was created with;
+    // one made under a different key (e.g. a leftover Firebase/FCM subscription
+    // on the same registration) can't receive pushes signed with ours. Drop it
+    // and subscribe fresh instead of syncing a dead channel.
+    let subscription = await registration.pushManager.getSubscription();
+    if (subscription && !keysMatch(subscription.options.applicationServerKey, applicationServerKey)) {
+      await subscription.unsubscribe();
+      subscription = null;
+    }
+    subscription ??= await registration.pushManager.subscribe({
+      userVisibleOnly: true,
+      applicationServerKey,
+    });
 
     await this.sync(subscription, userId, opts?.signMessage);
     return subscription;
