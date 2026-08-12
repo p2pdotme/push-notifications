@@ -1,5 +1,6 @@
 import { after, before, describe, it } from 'node:test';
 import assert from 'node:assert/strict';
+import util from 'node:util';
 import type { Server } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import webpush from 'web-push';
@@ -12,9 +13,15 @@ import type { Config } from '../src/config.js';
 import { Repository } from '../src/repository.js';
 import { PushSender } from '../src/webpush.js';
 import { createServer } from '../src/server.js';
-import { createSubscriptionVerifier, type SignatureVerifier } from '../src/subscription-verify.js';
+import {
+  createSubscriptionVerifier,
+  VerifyUnavailableError,
+  viemSignatureVerifier,
+  type SignatureVerifier,
+} from '../src/subscription-verify.js';
 import { FakeAuthService } from './fake-auth-service.js';
 import { createTestPool } from './helpers/test-db.js';
+import { erc8010Malformed, erc8010WellFormed } from './helpers/erc8010.js';
 
 const PRIVATE_KEY = '0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80';
 const ADDRESS = Address.fromPublicKey(Secp256k1.getPublicKey({ privateKey: PRIVATE_KEY })).toLowerCase();
@@ -154,5 +161,180 @@ describe('signature-required subscribe', () => {
     });
     assert.equal(res.status, 401);
     assert.equal(((await res.json()) as { code?: string }).code, 'signature_required');
+  });
+});
+
+describe('signature verifier unavailability (503) vs a genuine rejection (401)', () => {
+  async function startServer(verifier: SignatureVerifier): Promise<{ srv: Server; url: string }> {
+    const db = await createTestPool();
+    const localRepo = new Repository(db);
+    await localRepo.createApp({ appId: 'sig-app', name: 'Sig App' });
+    await localRepo.updateApp('sig-app', { requireSubscriptionSignature: true });
+    await localRepo.addCorsOrigin({ appId: 'sig-app', origin: ORIGIN });
+    const sender = new PushSender(config, localRepo);
+    const app = createServer(config, localRepo, sender, new FakeAuthService(), createSubscriptionVerifier(config, verifier));
+    const srv = await new Promise<Server>((resolve) => {
+      const s = app.listen(0, '127.0.0.1', () => resolve(s));
+    });
+    const url = `http://127.0.0.1:${(srv.address() as AddressInfo).port}`;
+    return { srv, url };
+  }
+
+  async function challengeAndSign(url: string, endpoint: string) {
+    const chRes = await fetch(`${url}/subscriptions/challenge`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Origin: ORIGIN },
+      body: JSON.stringify({ appId: 'sig-app', address: ADDRESS, endpoint }),
+    });
+    assert.equal(chRes.status, 200, 'challenge should succeed');
+    const { payload, message } = (await chRes.json()) as { payload: unknown; message: string };
+    const hash = PersonalMessage.getSignPayload(Hex.fromString(message));
+    const signature = Signature.toHex(Secp256k1.sign({ payload: hash, privateKey: PRIVATE_KEY }));
+    return { payload, signature };
+  }
+
+  it('answers 503 verify_unavailable, not 401, when the verifier cannot tell', async () => {
+    const { srv, url } = await startServer(async () => {
+      throw new VerifyUnavailableError('Base RPC unavailable (simulated)');
+    });
+    try {
+      const endpoint = 'https://push.example.com/unavailable';
+      const { payload, signature } = await challengeAndSign(url, endpoint);
+      const res = await fetch(`${url}/subscriptions`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Origin: ORIGIN },
+        body: JSON.stringify({ appId: 'sig-app', userId: ADDRESS, subscription: makeSub(endpoint), payload, signature }),
+      });
+      assert.equal(res.status, 503);
+      assert.equal(((await res.json()) as { code?: string }).code, 'verify_unavailable');
+    } finally {
+      srv.close();
+    }
+  });
+
+  it('still answers 401 invalid_signature for a genuine rejection', async () => {
+    const { srv, url } = await startServer(async () => false);
+    try {
+      const endpoint = 'https://push.example.com/genuinely-bad';
+      const { payload, signature } = await challengeAndSign(url, endpoint);
+      const res = await fetch(`${url}/subscriptions`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Origin: ORIGIN },
+        body: JSON.stringify({ appId: 'sig-app', userId: ADDRESS, subscription: makeSub(endpoint), payload, signature }),
+      });
+      assert.equal(res.status, 401);
+      assert.equal(((await res.json()) as { code?: string }).code, 'invalid_signature');
+    } finally {
+      srv.close();
+    }
+  });
+
+  it('does not repaint an unrelated verifier bug as 503: a plain thrown error still 500s', async () => {
+    const { srv, url } = await startServer(async () => {
+      throw new Error('a bug unrelated to RPC availability (simulated)');
+    });
+    try {
+      const endpoint = 'https://push.example.com/unrelated-bug';
+      const { payload, signature } = await challengeAndSign(url, endpoint);
+      const res = await fetch(`${url}/subscriptions`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Origin: ORIGIN },
+        body: JSON.stringify({ appId: 'sig-app', userId: ADDRESS, subscription: makeSub(endpoint), payload, signature }),
+      });
+      assert.equal(res.status, 500);
+    } finally {
+      srv.close();
+    }
+  });
+
+  /**
+   * These two run the REAL viem verifier against an unreachable RPC whose URL
+   * carries a secret, which is how an operator's Alchemy key is shaped. The
+   * signature is ERC-8010 wrapped: its 32-byte magic tail is caller-controlled
+   * and selects a viem branch that calls the RPC with no catch of its own, so
+   * an unauthenticated caller decides whether that branch is taken.
+   */
+  const SECRET = 'SECRET_RPC_KEY_MUST_NOT_LEAK';
+  const DEAD_RPC = `http://127.0.0.1:9/v2/${SECRET}`;
+
+  function captureConsole(): { output: () => string; restore: () => void } {
+    const lines: string[] = [];
+    const original = { error: console.error, warn: console.warn, log: console.log };
+    const collect = (...args: unknown[]) => {
+      lines.push(util.format(...args));
+    };
+    console.error = collect;
+    console.warn = collect;
+    console.log = collect;
+    return {
+      output: () => lines.join('\n'),
+      restore: () => {
+        console.error = original.error;
+        console.warn = original.warn;
+        console.log = original.log;
+      },
+    };
+  }
+
+  it('answers 503 and never writes the RPC URL anywhere when the RPC is unreachable', async () => {
+    const verifier = viemSignatureVerifier({ ...config, subscribeVerifyRpcUrl: DEAD_RPC });
+    const { srv, url } = await startServer(verifier);
+    const console_ = captureConsole();
+    try {
+      const endpoint = 'https://push.example.com/dead-rpc';
+      const { payload } = await challengeAndSign(url, endpoint);
+      const res = await fetch(`${url}/subscriptions`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Origin: ORIGIN },
+        body: JSON.stringify({
+          appId: 'sig-app',
+          userId: ADDRESS,
+          subscription: makeSub(endpoint),
+          payload,
+          signature: erc8010WellFormed(),
+        }),
+      });
+      const body = await res.text();
+      const logged = console_.output();
+      console_.restore();
+
+      assert.equal(res.status, 503, `expected 503, got ${res.status}: ${body}`);
+      assert.ok(!logged.includes(SECRET), `the RPC URL reached the log:\n${logged}`);
+      assert.ok(!body.includes(SECRET), `the RPC URL reached the response body:\n${body}`);
+      assert.match(logged, /HttpRequestError/, 'the log must name the underlying failure');
+    } finally {
+      console_.restore();
+      srv.close();
+    }
+  });
+
+  it('answers 401, not 500, for a malformed ERC-8010 wrapped signature', async () => {
+    const verifier = viemSignatureVerifier({ ...config, subscribeVerifyRpcUrl: DEAD_RPC });
+    const { srv, url } = await startServer(verifier);
+    const console_ = captureConsole();
+    try {
+      const endpoint = 'https://push.example.com/malformed-8010';
+      const { payload } = await challengeAndSign(url, endpoint);
+      const res = await fetch(`${url}/subscriptions`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Origin: ORIGIN },
+        body: JSON.stringify({
+          appId: 'sig-app',
+          userId: ADDRESS,
+          subscription: makeSub(endpoint),
+          payload,
+          signature: erc8010Malformed(),
+        }),
+      });
+      const logged = console_.output();
+      console_.restore();
+
+      assert.equal(res.status, 401);
+      assert.equal(((await res.json()) as { code?: string }).code, 'invalid_signature');
+      assert.ok(!logged.includes(SECRET), `the RPC URL reached the log:\n${logged}`);
+    } finally {
+      console_.restore();
+      srv.close();
+    }
   });
 });

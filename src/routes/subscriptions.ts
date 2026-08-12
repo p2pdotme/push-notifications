@@ -2,6 +2,7 @@ import { Router } from 'express';
 import { asyncHandler } from '../async-handler.js';
 import { assertAppAccess, HttpError } from '../auth.js';
 import { subscribeSchema, subscriptionChallengeSchema, unsubscribeSchema } from '../schemas.js';
+import { VerifyUnavailableError } from '../subscription-verify.js';
 import type { AppContext } from '../server.js';
 
 const ADDRESS_RE = /^0x[a-fA-F0-9]{40}$/;
@@ -49,14 +50,28 @@ export function subscriptionsRouter(ctx: AppContext): Router {
 
       if (parsed.payload && parsed.signature) {
         if (!origin) throw new HttpError(403, 'Origin header is required to verify a subscription signature');
-        const ok = await ctx.verifier.verifyProof({
-          userId,
-          appId: parsed.appId,
-          endpoint: parsed.subscription.endpoint,
-          originHost: new URL(origin).host,
-          payload: parsed.payload,
-          signature: parsed.signature,
-        });
+        let ok: boolean;
+        try {
+          ok = await ctx.verifier.verifyProof({
+            userId,
+            appId: parsed.appId,
+            endpoint: parsed.subscription.endpoint,
+            originHost: new URL(origin).host,
+            payload: parsed.payload,
+            signature: parsed.signature,
+          });
+        } catch (err) {
+          if (!(err instanceof VerifyUnavailableError)) throw err;
+          // Only `err.message`, never `err.cause`. The cause is the raw viem
+          // error and carries the full RPC URL, API key included.
+          // eslint-disable-next-line no-console
+          console.error('Subscription signature verification unavailable:', err.message);
+          throw new HttpError(
+            503,
+            'Signature verification is temporarily unavailable, try again shortly',
+            'verify_unavailable',
+          );
+        }
         if (!ok) throw new HttpError(401, 'Invalid wallet signature', 'invalid_signature');
         verifiedAt = new Date().toISOString();
       } else {
