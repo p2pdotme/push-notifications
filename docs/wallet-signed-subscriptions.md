@@ -200,8 +200,9 @@ On failure the server returns `401` with a machine-readable `code`:
 ### 1. Configure Base verification
 
 Smart-wallet (EIP-1271 / EIP-6492) verification makes an on-chain
-`isValidSignature` call, so the service needs a Base RPC. EOA signatures verify
-**offline** and need no RPC.
+`isValidSignature` call, so the service needs a Base RPC. EOA signatures are
+recovered **offline first** and never touch the RPC at all, so an RPC problem
+cannot slow down or reject an ordinary wallet.
 
 ```bash
 # Base RPC endpoint (Alchemy / Infura / QuickNode / your node). Strongly
@@ -247,11 +248,12 @@ behavior until you flip theirs.
 
 ### 4. Verify smart-wallet verification before relying on it
 
-CI exercises the EOA path with a real signature, but the EIP-1271/6492 path needs
-a live `eth_call` and is **not** covered automatically. Before depending on smart
-wallets in production, do one end-to-end check with `SUBSCRIBE_VERIFY_RPC_URL`
-set: subscribe from a real smart wallet (e.g. a thirdweb smart account or Coinbase
-Smart Wallet) and confirm it returns `201`.
+CI exercises the EOA path with a real signature, and separately checks that the
+EIP-1271/6492 request shape and its accept/reject handling are correct against a
+stubbed RPC, but nothing in CI calls a **live** `eth_call` against a real chain.
+Before depending on smart wallets in production, do one end-to-end check with
+`SUBSCRIBE_VERIFY_RPC_URL` set: subscribe from a real smart wallet (e.g. a
+thirdweb smart account or Coinbase Smart Wallet) and confirm it returns `201`.
 
 A successful signed subscribe stamps the subscription row's `verified_at`:
 
@@ -262,14 +264,21 @@ SELECT user_id, verified_at FROM subscriptions WHERE endpoint = '<endpoint>';
 
 ### 5. Monitor
 
-Watch the subscribe endpoint's `401` responses by `code`:
+Watch the subscribe endpoint's `401` and `503` responses by `code`:
 
 - **`signature_required`** spiking → clients are subscribing without a signature.
   Usually an app shipped/enabled out of order (flag on before the new client) —
   roll the client out, or temporarily disable the flag.
-- **`invalid_signature`** spiking → bad/expired signatures, origin/endpoint
-  mismatches, or (for smart wallets) RPC failures/rate-limiting. Check
-  `SUBSCRIBE_VERIFY_RPC_URL` health; remember EOAs still verify if the RPC is down.
+- **`invalid_signature`** spiking → bad/expired signatures or origin/endpoint
+  mismatches. EOAs verify offline, so this code means a genuine bad signature,
+  not an RPC problem.
+- **`verify_unavailable`** (`503`) spiking → the Base RPC behind the smart-wallet
+  (EIP-1271/6492) check isn't answering. Check `SUBSCRIBE_VERIFY_RPC_URL` health;
+  EOA subscribers are unaffected either way. Each occurrence logs the class of
+  the underlying failure, so you can tell an unreachable host
+  (`HttpRequestError`), a slow one (`TimeoutError`) and a throttling one
+  (`HttpRequestError, HTTP 429` or `LimitExceededRpcError`) apart. The log line
+  deliberately carries no URL, because the RPC URL usually contains an API key.
 
 ### 6. Disable / roll back
 
@@ -287,3 +296,4 @@ subscriptions are unaffected.
 | on       | no `payload`/`signature`, **same** app + wallet already verified for this endpoint | `201` (refresh, no re-sign) |
 | on       | valid `payload`+`signature`               | `201`, `verified_at = now()` |
 | on       | `payload`+`signature` that fails verification | `401 invalid_signature` |
+| on       | `payload`+`signature` for a smart wallet, RPC unreachable | `503 verify_unavailable` (not `401`) |

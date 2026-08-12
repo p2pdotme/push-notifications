@@ -38,6 +38,16 @@ async function main(): Promise<void> {
     );
   }
 
+  if (!config.subscribeVerifyRpcUrl) {
+    // eslint-disable-next-line no-console
+    console.warn(
+      'WARNING: SUBSCRIBE_VERIFY_RPC_URL is empty. Smart-wallet (EIP-1271/6492) ' +
+        "subscription-signature verification will depend on viem's public, rate-limited " +
+        'Base RPC. Set it to a dedicated server-side Base RPC endpoint before enabling ' +
+        'require_subscription_signature for any app with smart-wallet users.',
+    );
+  }
+
   const sender = new PushSender(config, repo);
   const authService = createAuthService(config);
   const app = createServer(config, repo, sender, authService);
