@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.3.2](https://github.com/p2pdotme/push-notifications/compare/v0.3.1...v0.3.2) (2026-08-29)
+
+
+### Bug Fixes
+
+* **client:** ask for notification permission only when it is undecided ([dd1a0c2](https://github.com/p2pdotme/push-notifications/commit/dd1a0c2ccf39c17f5be04caf30f62f965da6e78f))
+
 ## [0.3.1](https://github.com/p2pdotme/push-notifications/compare/v0.3.0...v0.3.1) (2026-07-13)
 
 
