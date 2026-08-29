@@ -113,7 +113,15 @@ export class PushClient {
   async subscribe(userId?: string, opts?: SubscribeOptions): Promise<PushSubscription> {
     if (!isPushSupported()) throw new PushNotSupportedError();
 
-    const permission = await this.requestPermission();
+    // Ask only when the permission is undecided. Re-asking is not a harmless
+    // read: WebKit requires a live user activation for requestPermission and
+    // answers "denied" without consulting the stored state when the activation
+    // is spent, and the first ask itself spends it. A caller that settles the
+    // prompt before calling subscribe(), for instance to keep its own timeout
+    // clock from timing the user reading the dialog, would otherwise get
+    // "denied" here for a permission the user granted a moment ago.
+    const permission =
+      Notification.permission === 'default' ? await this.requestPermission() : Notification.permission;
     if (permission !== 'granted') {
       throw new Error(`Notification permission was not granted (${permission})`);
     }
