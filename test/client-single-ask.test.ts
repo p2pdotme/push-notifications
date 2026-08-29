@@ -6,8 +6,8 @@ import { PushClient } from '../client/src/index';
 // Notification.requestPermission call and refuses any later call with
 // "denied" before it reads the stored permission (WebCore Notification.cpp,
 // consumeTransientActivation, shipping since at least WebKit-7620). This stub
-// models exactly that: the first ask grants and every later ask answers
-// denied even though the stored permission is granted.
+// models exactly that: the first ask answers honestly, and every later ask
+// answers denied however the stored permission reads.
 
 const savedGlobals = new Map<string, PropertyDescriptor | undefined>();
 
@@ -28,15 +28,26 @@ afterEach(() => {
 
 const VAPID_KEY = Buffer.from(new Uint8Array([1, 2, 3, 4])).toString('base64url');
 
-function stubEnvironment(initial: NotificationPermission) {
+/** `firstAnswer` is what the user does with the prompt when one is shown:
+ *  'granted' allows, 'denied' blocks, 'default' dismisses it without choosing. */
+function stubEnvironment(
+  initial: NotificationPermission,
+  firstAnswer: NotificationPermission = 'granted',
+) {
   let asks = 0;
   const notification = {
     permission: initial,
     requestPermission: async () => {
       asks += 1;
-      if (asks === 1 && notification.permission === 'default') {
-        notification.permission = 'granted';
-        return 'granted' as NotificationPermission;
+      // The first ask still answers honestly. An undecided permission gets
+      // whatever the user does with the prompt, and an already settled one
+      // reads back as it stands. Only LATER asks are refused out of hand,
+      // because by then the activation the first ask spent is gone.
+      if (asks === 1) {
+        if (notification.permission === 'default') {
+          notification.permission = firstAnswer;
+        }
+        return notification.permission;
       }
       return 'denied' as NotificationPermission;
     },
@@ -65,7 +76,8 @@ function stubEnvironment(initial: NotificationPermission) {
 
 test('subscribe() never re-asks a permission the page already holds', async () => {
   const env = stubEnvironment('default');
-  // What the leakednews app does inside the tap, before calling subscribe().
+  // What a caller that settles the prompt itself does, inside the tap,
+  // before calling subscribe().
   await Notification.requestPermission();
   assert.equal(env.notification.permission, 'granted');
   const client = new PushClient({ serverUrl: 'https://push.example', appId: 'app' });
@@ -86,5 +98,20 @@ test('subscribe() reports a stored denial without asking again', async () => {
   const env = stubEnvironment('denied');
   const client = new PushClient({ serverUrl: 'https://push.example', appId: 'app' });
   await assert.rejects(client.subscribe(), /not granted \(denied\)/);
+  assert.equal(env.askCount(), 0);
+});
+
+test('subscribe() reports a dismissed prompt and does not go on to subscribe', async () => {
+  const env = stubEnvironment('default', 'default');
+  const client = new PushClient({ serverUrl: 'https://push.example', appId: 'app' });
+  await assert.rejects(client.subscribe(), /not granted \(default\)/);
+  assert.equal(env.askCount(), 1);
+});
+
+test('subscribe() never asks when the permission is already granted', async () => {
+  const env = stubEnvironment('granted');
+  const client = new PushClient({ serverUrl: 'https://push.example', appId: 'app' });
+  const sub = await client.subscribe();
+  assert.ok(sub);
   assert.equal(env.askCount(), 0);
 });
